@@ -16,7 +16,6 @@ type StreamChecker struct {
 	validator models.Validator
 	metrics   models.MetricsCollector
 	workers   int
-	streams   []models.StreamConfig
 	wg        sync.WaitGroup
 	stopCh    chan struct{}
 }
@@ -143,14 +142,14 @@ func (c *StreamChecker) updateResultStatus(result *models.CheckResult, masterPla
 	return result
 }
 
-func (c *StreamChecker) handleSegmentErrors(result *models.CheckResult, segResults models.SegmentResults) (*models.CheckResult, error) {
-	errMsg := fmt.Sprintf("%d of %d segments failed validation", segResults.Failed, segResults.Checked)
-	result.Error = &models.CheckError{
-		Type:    models.ErrSegmentValidate,
-		Message: errMsg,
-	}
-	return result, fmt.Errorf("%s", errMsg)
-}
+// func (c *StreamChecker) handleSegmentErrors(result *models.CheckResult, segResults models.SegmentResults) (*models.CheckResult, error) {
+// 	errMsg := fmt.Sprintf("%d of %d segments failed validation", segResults.Failed, segResults.Checked)
+// 	result.Error = &models.CheckError{
+// 		Type:    models.ErrSegmentValidate,
+// 		Message: errMsg,
+// 	}
+// 	return result, fmt.Errorf("%s", errMsg)
+// }
 
 func (c *StreamChecker) checkVariants(
 	ctx context.Context,
@@ -234,15 +233,17 @@ func (c *StreamChecker) checkSegment(
 	check.Duration = resp.Duration
 	return check
 }
-
 func (c *StreamChecker) worker() {
 	defer c.wg.Done()
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-c.stopCh:
 			return
-		default:
-			// Проверка потоков
+		case <-ticker.C:
+			// Здесь можно добавить периодические проверки
 		}
 	}
 }

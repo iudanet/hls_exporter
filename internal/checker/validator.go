@@ -3,13 +3,25 @@ package checker
 import (
 	"errors"
 	"fmt"
-	"time"
+	"math/big"
 
-	"math/rand"
+	"crypto/rand"
 
 	"github.com/grafov/m3u8"
 	"github.com/iudanet/hls_exporter/pkg/models"
 )
+
+// Заменяем генерацию случайных чисел
+func getRandomIndex(limit int64) (int, error) {
+	if limit <= 0 {
+		return 0, fmt.Errorf("invalid limit: %d", limit)
+	}
+	n, err := rand.Int(rand.Reader, big.NewInt(limit))
+	if err != nil {
+		return 0, err
+	}
+	return int(n.Int64()), nil
+}
 
 type HLSValidator struct {
 	segmentValidator models.SegmentValidator // встраиваем интерфейс
@@ -80,62 +92,6 @@ func (v *HLSValidator) ValidateMedia(playlist *m3u8.MediaPlaylist) error {
 	return nil
 }
 
-func (v *HLSValidator) validateBasic(segment *models.SegmentData) error {
-	if segment.Size == 0 {
-		return &models.ValidationError{
-			Type:    models.ErrSegmentSize,
-			Message: "empty segment",
-		}
-	}
-
-	return nil
-}
-
-func (v *HLSValidator) validateMedia(
-	segment *models.SegmentData,
-	validation *models.MediaValidation,
-) error {
-	// Проверка типа контейнера
-	validContainer := false
-	for _, ct := range validation.ContainerType {
-		if segment.MediaInfo.Container == ct {
-			validContainer = true
-			break
-		}
-	}
-	if !validContainer {
-		return &models.ValidationError{
-			Type:    models.ErrContainer,
-			Message: fmt.Sprintf("invalid container type: %s", segment.MediaInfo.Container),
-		}
-	}
-
-	// Проверка минимального размера
-	if segment.Size < validation.MinSegmentSize {
-		return &models.ValidationError{
-			Type:    models.ErrSegmentSize,
-			Message: fmt.Sprintf("segment size %d less than minimum %d", segment.Size, validation.MinSegmentSize),
-		}
-	}
-
-	// Проверка наличия видео/аудио
-	if validation.CheckVideo && !segment.MediaInfo.HasVideo {
-		return &models.ValidationError{
-			Type:    models.ErrNoVideo,
-			Message: "no video track found",
-		}
-	}
-
-	if validation.CheckAudio && !segment.MediaInfo.HasAudio {
-		return &models.ValidationError{
-			Type:    models.ErrNoAudio,
-			Message: "no audio track found",
-		}
-	}
-
-	return nil
-}
-
 func (c *StreamChecker) selectSegments(playlist *m3u8.MediaPlaylist, mode string) []*m3u8.MediaSegment {
 	var segments []*m3u8.MediaSegment
 
@@ -163,15 +119,15 @@ func (c *StreamChecker) selectSegments(playlist *m3u8.MediaPlaylist, mode string
 
 	case models.CheckModeRandom:
 		if playlist.Count() > 0 {
-			// Инициализируем генератор случайных чисел
-			r := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-			// Выбираем случайные сегменты
-			count := min(3, int(playlist.Count()))
+			count := minInt(3, safeCount(playlist.Count()))
 			seen := make(map[int]bool)
 
+			playlistCount := safeInt64(playlist.Count())
 			for len(segments) < count {
-				idx := r.Intn(int(playlist.Count()))
+				idx, err := getRandomIndex(playlistCount)
+				if err != nil {
+					continue
+				}
 				if !seen[idx] && playlist.Segments[idx] != nil {
 					segments = append(segments, playlist.Segments[idx])
 					seen[idx] = true
@@ -183,7 +139,24 @@ func (c *StreamChecker) selectSegments(playlist *m3u8.MediaPlaylist, mode string
 	return segments
 }
 
-func min(a, b int) int {
+const (
+	MaxInt   = int(^uint(0) >> 1)
+	MaxInt64 = int64(^uint64(0) >> 1)
+)
+
+func safeCount(count uint) int {
+	if count > uint(MaxInt) {
+		return MaxInt
+	}
+	return int(count)
+}
+func safeInt64(n uint) int64 {
+	if n > uint(MaxInt64) {
+		return MaxInt64
+	}
+	return int64(n)
+}
+func minInt(a, b int) int {
 	if a < b {
 		return a
 	}

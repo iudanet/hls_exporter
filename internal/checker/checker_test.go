@@ -182,7 +182,7 @@ func TestStreamChecker_Check(t *testing.T) {
 				Name: "test_stream",
 				URL:  "http://example.com/master.m3u8",
 			},
-			setup: func(httpClient *MockHTTPClient, validator *MockValidator, metrics *MockMetricsCollector) {
+			setup: func(httpClient *MockHTTPClient, _ *MockValidator, metrics *MockMetricsCollector) {
 				// Порядок вызовов важен
 				httpClient.On("GetPlaylist", mock.Anything, "http://example.com/master.m3u8").
 					Return(nil, fmt.Errorf("network error"))
@@ -206,7 +206,7 @@ func TestStreamChecker_Check(t *testing.T) {
 				Name: "test_stream",
 				URL:  "http://example.com/master.m3u8",
 			},
-			setup: func(httpClient *MockHTTPClient, validator *MockValidator, metrics *MockMetricsCollector) {
+			setup: func(httpClient *MockHTTPClient, _ *MockValidator, metrics *MockMetricsCollector) {
 				// Возвращаем некорректный плейлист
 				masterPlaylist := &models.PlaylistResponse{
 					Body:       []byte("invalid playlist"),
