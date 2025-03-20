@@ -36,12 +36,14 @@ func NewStreamChecker(
 }
 
 func (c *StreamChecker) Start() error {
+	c.client.SetTimeout(10 * time.Second) // Set timeout when starting the checker
 	for i := 0; i < c.workers; i++ {
 		c.wg.Add(1)
 		go c.worker()
 	}
 	return nil
 }
+
 func (c *StreamChecker) handleError(
 	result *models.CheckResult,
 	err error,
@@ -56,11 +58,16 @@ func (c *StreamChecker) handleError(
 }
 
 func (c *StreamChecker) Stop() error {
-	close(c.stopCh)
+	select {
+	case <-c.stopCh:
+		// Channel is already closed
+		return nil
+	default:
+		close(c.stopCh)
+	}
 	c.wg.Wait()
 	return nil
 }
-
 func (c *StreamChecker) Check(ctx context.Context, stream models.StreamConfig) (*models.CheckResult, error) {
 	result := c.initResult(stream)
 	start := result.Timestamp
@@ -69,6 +76,7 @@ func (c *StreamChecker) Check(ctx context.Context, stream models.StreamConfig) (
 	masterPlaylist, masterResp, err := c.checkMasterPlaylist(ctx, stream.URL, result)
 	if err != nil {
 		result.Duration = time.Since(start)
+		// Обновляем метрики после установки всех полей
 		c.updateMetrics(stream.Name, result)
 		return result, err
 	}
@@ -76,8 +84,9 @@ func (c *StreamChecker) Check(ctx context.Context, stream models.StreamConfig) (
 	// Проверка сегментов
 	segResults := c.checkVariants(ctx, masterPlaylist, stream)
 	result = c.updateResultStatus(result, masterPlaylist, masterResp, segResults)
+	result.Duration = time.Since(start)
 
-	// Финальная проверка
+	// Устанавливаем статус до обновления метрик
 	if segResults.Failed > 0 {
 		result.Success = false
 		errMsg := fmt.Sprintf("%d of %d segments failed validation", segResults.Failed, segResults.Checked)
@@ -85,14 +94,13 @@ func (c *StreamChecker) Check(ctx context.Context, stream models.StreamConfig) (
 			Type:    models.ErrSegmentValidate,
 			Message: errMsg,
 		}
-		result.Duration = time.Since(start)
+		// Обновляем метрики после установки всех полей
 		c.updateMetrics(stream.Name, result)
-		// Используем константную строку формата
 		return result, fmt.Errorf("segment validation failed: %s", errMsg)
 	}
 
+	// Успешное завершение
 	result.Success = true
-	result.Duration = time.Since(start)
 	c.updateMetrics(stream.Name, result)
 	return result, nil
 }
@@ -141,15 +149,6 @@ func (c *StreamChecker) updateResultStatus(result *models.CheckResult, masterPla
 
 	return result
 }
-
-// func (c *StreamChecker) handleSegmentErrors(result *models.CheckResult, segResults models.SegmentResults) (*models.CheckResult, error) {
-// 	errMsg := fmt.Sprintf("%d of %d segments failed validation", segResults.Failed, segResults.Checked)
-// 	result.Error = &models.CheckError{
-// 		Type:    models.ErrSegmentValidate,
-// 		Message: errMsg,
-// 	}
-// 	return result, fmt.Errorf("%s", errMsg)
-// }
 
 func (c *StreamChecker) checkVariants(
 	ctx context.Context,
@@ -249,11 +248,13 @@ func (c *StreamChecker) worker() {
 }
 
 func (c *StreamChecker) updateMetrics(stream string, result *models.CheckResult) {
-	// Success уже должен быть установлен в правильное значение
 	c.metrics.SetStreamUp(stream, result.Success)
 	c.metrics.RecordResponseTime(stream, result.Duration.Seconds())
 	c.metrics.SetLastCheckTime(stream, result.Timestamp)
 	c.metrics.SetSegmentsCount(stream, result.Segments.Checked)
+	c.metrics.SetActiveChecks(c.workers)
+	c.metrics.RecordSegmentCheck(stream, result.Success)
+	c.metrics.SetStreamBitrate(stream, 0.0) // Add proper bitrate calculation if needed
 
 	if result.Error != nil {
 		c.metrics.RecordError(stream, string(result.Error.Type))
