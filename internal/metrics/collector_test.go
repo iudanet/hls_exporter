@@ -4,232 +4,222 @@ import (
 	"testing"
 	"time"
 
+	"github.com/iudanet/hls_exporter/pkg/models"
 	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
+	"github.com/stretchr/testify/assert"
 )
 
-const (
-	testStreamName = "test_stream"
-)
+func TestCollector(t *testing.T) {
+	// Создаем тестовый регистр для каждого теста
+	t.Run("Metrics Registration", func(t *testing.T) {
+		reg := prometheus.NewRegistry()
+		collector := NewCollector(reg)
+		assert.NotNil(t, collector)
 
-// createTestCollector создает коллектор с собственным регистром для тестов
-func createTestCollector() (*Collector, *prometheus.Registry) {
-	reg := prometheus.NewRegistry()
-	c := &Collector{
-		streamUp: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Name: MetricStreamUp,
-				Help: "Shows if the HLS stream is available",
-			},
-			[]string{"name"},
-		),
+		// Проверяем, что все метрики зарегистрированы
+		metrics, err := reg.Gather()
+		assert.NoError(t, err)
+		assert.NotEmpty(t, metrics)
+	})
 
-		responseTime: prometheus.NewHistogramVec(
-			prometheus.HistogramOpts{
-				Name:    MetricResponseTime,
-				Help:    "Response time in seconds",
-				Buckets: []float64{0.1, 0.25, 0.5, 1, 2.5, 5, 10},
-			},
-			[]string{"name", "type"},
-		),
-
-		errorsTotal: prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Name: MetricErrorsTotal,
-				Help: "Total number of errors",
-			},
-			[]string{"name", "error_type"},
-		),
-
-		lastCheck: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Name: MetricLastCheck,
-				Help: "Timestamp of last check",
-			},
-			[]string{"name"},
-		),
-
-		segmentsChecked: prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Name: MetricSegmentsChecked,
-				Help: "Number of segments checked",
-			},
-			[]string{"name", "status"},
-		),
-	}
-
-	reg.MustRegister(c.streamUp)
-	reg.MustRegister(c.responseTime)
-	reg.MustRegister(c.errorsTotal)
-	reg.MustRegister(c.lastCheck)
-	reg.MustRegister(c.segmentsChecked)
-
-	return c, reg
-}
-
-func TestCollector_StreamUp(t *testing.T) {
-	c, _ := createTestCollector()
-
+	// Для каждого теста создаем новый регистр
 	tests := []struct {
-		name     string
-		streamUp bool
-		want     float64
+		name string
+		test func(t *testing.T, reg *prometheus.Registry, collector models.MetricsCollector)
 	}{
-		{
-			name:     "stream1",
-			streamUp: true,
-			want:     1.0,
-		},
-		{
-			name:     "stream2",
-			streamUp: false,
-			want:     0.0,
-		},
+		{"SetStreamUp", testSetStreamUp},
+		{"RecordError", testRecordError},
+		{"SetLastCheckTime", testSetLastCheckTime},
+		{"RecordSegmentCheck", testRecordSegmentCheck},
+		{"RecordResponseTime", testRecordResponseTime},
+		{"SetActiveChecks", testSetActiveChecks},
+		{"SetSegmentsCount", testSetSegmentsCount},
+		{"SetStreamBitrate", testSetStreamBitrate},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c.SetStreamUp(tt.name, tt.streamUp)
-			if got := c.GetStreamUp(tt.name); got != tt.want {
-				t.Errorf("SetStreamUp() = %v, want %v", got, tt.want)
-			}
+			reg := prometheus.NewRegistry()
+			collector := NewCollector(reg)
+			tt.test(t, reg, collector)
 		})
 	}
 }
 
-func TestCollector_ErrorsTotal(t *testing.T) {
-	c, _ := createTestCollector()
+func testSetStreamUp(t *testing.T, reg *prometheus.Registry, collector models.MetricsCollector) {
+	collector.SetStreamUp("test_stream", true)
+	value := collector.(*Collector).GetStreamUp("test_stream")
+	assert.Equal(t, float64(1), value)
 
-	tests := []struct {
-		name      string
-		errorType string
-		count     int
-		want      float64
-	}{
-		{
-			name:      "stream1",
-			errorType: "download",
-			count:     2,
-			want:      2.0,
-		},
-		{
-			name:      "stream2",
-			errorType: "parse",
-			count:     1,
-			want:      1.0,
-		},
-	}
+	collector.SetStreamUp("test_stream", false)
+	value = collector.(*Collector).GetStreamUp("test_stream")
+	assert.Equal(t, float64(0), value)
+}
+// Тест для RecordError
+func testRecordError(t *testing.T, reg *prometheus.Registry, collector models.MetricsCollector) {
+    collector.RecordError("test_stream", "test_error")
+    value := collector.(*Collector).GetErrorsTotal("test_stream", "test_error")
+    assert.Equal(t, float64(1), value)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			for i := 0; i < tt.count; i++ {
-				c.RecordError(tt.name, tt.errorType)
-			}
-			if got := c.GetErrorsTotal(tt.name, tt.errorType); got != tt.want {
-				t.Errorf("RecordError() = %v, want %v", got, tt.want)
-			}
-		})
-	}
+    collector.RecordError("test_stream", "test_error")
+    value = collector.(*Collector).GetErrorsTotal("test_stream", "test_error")
+    assert.Equal(t, float64(2), value)
 }
 
-func TestCollector_SegmentCheck(t *testing.T) {
-	c, reg := createTestCollector()
-	streamName := testStreamName
+// Тест для SetLastCheckTime
+func testSetLastCheckTime(t *testing.T, reg *prometheus.Registry, collector models.MetricsCollector) {
+    now := time.Now()
+    collector.SetLastCheckTime("test_stream", now)
 
-	successCases := 3
-	failureCases := 2
+    metrics, err := reg.Gather()
+    assert.NoError(t, err)
 
-	for i := 0; i < successCases; i++ {
-		c.RecordSegmentCheck(streamName, true)
-	}
-	for i := 0; i < failureCases; i++ {
-		c.RecordSegmentCheck(streamName, false)
-	}
-
-	metrics, err := reg.Gather()
-	if err != nil {
-		t.Fatalf("Failed to gather metrics: %v", err)
-	}
-
-	var found bool
-	for _, m := range metrics {
-		if m.GetName() == MetricSegmentsChecked {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Error("Segments checked metric not registered")
-	}
+    found := false
+    for _, m := range metrics {
+        if *m.Name == MetricLastCheck {
+            for _, metric := range m.Metric {
+                for _, label := range metric.Label {
+                    if *label.Name == "name" && *label.Value == "test_stream" {
+                        found = true
+                        assert.Equal(t, float64(now.Unix()), *metric.Gauge.Value)
+                    }
+                }
+            }
+        }
+    }
+    assert.True(t, found, "LastCheck metric should be found")
 }
 
-func TestCollector_ResponseTime(t *testing.T) {
-	c, reg := createTestCollector()
-	streamName := testStreamName
+// Тест для RecordSegmentCheck
+func testRecordSegmentCheck(t *testing.T, reg *prometheus.Registry, collector models.MetricsCollector) {
+    collector.RecordSegmentCheck("test_stream", true)
+    collector.RecordSegmentCheck("test_stream", false)
 
-	times := []float64{0.1, 0.5, 2.0, 5.0}
-	for _, duration := range times {
-		c.RecordResponseTime(streamName, duration)
-	}
+    metrics, err := reg.Gather()
+    assert.NoError(t, err)
 
-	metrics, err := reg.Gather()
-	if err != nil {
-		t.Fatalf("Failed to gather metrics: %v", err)
-	}
-
-	var found bool
-	for _, m := range metrics {
-		if m.GetName() == MetricResponseTime {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Error("Response time metric not registered")
-	}
+    var successCount, failedCount float64
+    for _, m := range metrics {
+        if *m.Name == MetricSegmentsChecked {
+            for _, metric := range m.Metric {
+                for _, label := range metric.Label {
+                    if *label.Name == "name" && *label.Value == "test_stream" {
+                        if hasLabelValue(metric, "status", "success") {
+                            successCount = *metric.Counter.Value
+                        }
+                        if hasLabelValue(metric, "status", "failed") {
+                            failedCount = *metric.Counter.Value
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert.Equal(t, float64(1), successCount, "Should have one successful check")
+    assert.Equal(t, float64(1), failedCount, "Should have one failed check")
 }
 
-func TestCollector_LastCheckTime(t *testing.T) {
-	c, reg := createTestCollector()
-	streamName := testStreamName
+// Тест для RecordResponseTime
+func testRecordResponseTime(t *testing.T, reg *prometheus.Registry, collector models.MetricsCollector) {
+    collector.RecordResponseTime("test_stream", 0.5)
 
-	now := time.Now()
-	c.SetLastCheckTime(streamName, now)
+    metrics, err := reg.Gather()
+    assert.NoError(t, err)
 
-	metrics, err := reg.Gather()
-	if err != nil {
-		t.Fatalf("Failed to gather metrics: %v", err)
-	}
-
-	var found bool
-	for _, m := range metrics {
-		if m.GetName() == MetricLastCheck {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Error("Last check time metric not registered")
-	}
+    found := false
+    for _, m := range metrics {
+        if *m.Name == MetricResponseTime {
+            for _, metric := range m.Metric {
+                if hasLabelValue(metric, "name", "test_stream") {
+                    found = true
+                    assert.Equal(t, uint64(1), *metric.Histogram.SampleCount)
+                    assert.Equal(t, 0.5, *metric.Histogram.SampleSum)
+                }
+            }
+        }
+    }
+    assert.True(t, found, "ResponseTime metric should be found")
 }
 
-func TestCollector_Reset(t *testing.T) {
-	c, _ := createTestCollector()
-	streamName := testStreamName
+// Тест для SetActiveChecks
+func testSetActiveChecks(t *testing.T, reg *prometheus.Registry, collector models.MetricsCollector) {
+    collector.(*Collector).SetActiveChecks(5)
 
-	c.SetStreamUp(streamName, true)
-	c.RecordError(streamName, "download")
-	c.RecordSegmentCheck(streamName, true)
+    metrics, err := reg.Gather()
+    assert.NoError(t, err)
 
-	c.Reset(streamName)
-
-	if got := c.GetStreamUp(streamName); got != 0 {
-		t.Errorf("After Reset() stream up = %v, want 0", got)
-	}
+    found := false
+    for _, m := range metrics {
+        if *m.Name == namespace+"_active_checks" {
+            found = true
+            assert.Equal(t, float64(5), *m.Metric[0].Gauge.Value)
+        }
+    }
+    assert.True(t, found, "ActiveChecks metric should be found")
 }
 
-func TestCollector_NewCollector(t *testing.T) {
-	c := NewCollector()
-	if c == nil {
-		t.Error("NewCollector() returned nil")
-	}
+// Тест для SetSegmentsCount
+func testSetSegmentsCount(t *testing.T, reg *prometheus.Registry, collector models.MetricsCollector) {
+    collector.(*Collector).SetSegmentsCount("test_stream", 10)
+
+    metrics, err := reg.Gather()
+    assert.NoError(t, err)
+
+    found := false
+    for _, m := range metrics {
+        if *m.Name == namespace+"_segments_count" {
+            for _, metric := range m.Metric {
+                if hasLabelValue(metric, "name", "test_stream") {
+                    found = true
+                    assert.Equal(t, float64(10), *metric.Gauge.Value)
+                }
+            }
+        }
+    }
+    assert.True(t, found, "SegmentsCount metric should be found")
+}
+
+// Тест для SetStreamBitrate
+func testSetStreamBitrate(t *testing.T, reg *prometheus.Registry, collector models.MetricsCollector) {
+    collector.(*Collector).SetStreamBitrate("test_stream", 1500000)
+
+    metrics, err := reg.Gather()
+    assert.NoError(t, err)
+
+    found := false
+    for _, m := range metrics {
+        if *m.Name == namespace+"_stream_bitrate_bytes" {
+            for _, metric := range m.Metric {
+                if hasLabelValue(metric, "name", "test_stream") {
+                    found = true
+                    assert.Equal(t, float64(1500000), *metric.Gauge.Value)
+                }
+            }
+        }
+    }
+    assert.True(t, found, "StreamBitrate metric should be found")
+}
+
+// Вспомогательная функция для проверки значения метки
+func hasLabelValue(metric *dto.Metric, labelName, labelValue string) bool {
+    for _, label := range metric.Label {
+        if *label.Name == labelName && *label.Value == labelValue {
+            return true
+        }
+    }
+    return false
+}
+func TestNewCollectorWithNilRegistry(t *testing.T) {
+	// Сохраняем оригинальный регистр
+	origReg := prometheus.DefaultRegisterer
+	// Создаем новый регистр для теста
+	prometheus.DefaultRegisterer = prometheus.NewRegistry()
+	// Восстанавливаем оригинальный регистр после теста
+	defer func() {
+		prometheus.DefaultRegisterer = origReg
+	}()
+
+	collector := NewCollector(nil)
+	assert.NotNil(t, collector)
 }

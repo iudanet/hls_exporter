@@ -9,6 +9,7 @@ import (
 
 	"github.com/grafov/m3u8"
 	"github.com/iudanet/hls_exporter/pkg/models"
+	"go.uber.org/zap"
 )
 
 var (
@@ -23,6 +24,7 @@ type StreamChecker struct {
 	metrics   models.MetricsCollector
 	workers   int
 	wg        sync.WaitGroup
+	logger    *zap.Logger
 	stopCh    chan struct{}
 }
 
@@ -32,15 +34,19 @@ func NewStreamChecker(
 	metrics models.MetricsCollector,
 	workers int,
 ) *StreamChecker {
+	logger, _ := zap.NewProduction() // Можно передавать logger как параметр
 	return &StreamChecker{
 		client:    client,
 		validator: validator,
 		metrics:   metrics,
 		workers:   workers,
+		logger:    logger,
 		stopCh:    make(chan struct{}),
 	}
 }
-
+func (c *StreamChecker) StopCh() <-chan struct{} {
+	return c.stopCh
+}
 func (c *StreamChecker) Start() error {
 	c.client.SetTimeout(10 * time.Second) // Set timeout when starting the checker
 	for i := 0; i < c.workers; i++ {
@@ -200,22 +206,30 @@ func (c *StreamChecker) checkVariants(
 	return results
 }
 
-func (c *StreamChecker) checkSegment(
-	ctx context.Context,
-	segment *m3u8.MediaSegment,
-	cfg models.StreamConfig,
-) models.SegmentCheck {
+func (c *StreamChecker) checkSegment(ctx context.Context, segment *m3u8.MediaSegment, cfg models.StreamConfig) models.SegmentCheck {
 	check := models.SegmentCheck{
 		URL:     segment.URI,
-		Success: false, // изначально false
+		Success: false,
 	}
 
 	resp, err := c.client.GetSegment(ctx, segment.URI, cfg.ValidateContent)
 	if err != nil {
+		if c.logger != nil {
+			c.logger.Debug("Segment download failed",
+				zap.String("url", segment.URI),
+				zap.Error(err))
+		}
 		check.Error = &models.CheckError{
 			Type:    models.ErrSegmentDownload,
 			Message: err.Error(),
 		}
+		return check
+	}
+
+	// Если валидация контента отключена, считаем сегмент успешным
+	if !cfg.ValidateContent {
+		check.Success = true
+		check.Duration = resp.Duration
 		return check
 	}
 
@@ -227,6 +241,11 @@ func (c *StreamChecker) checkSegment(
 	}
 
 	if err := c.validator.ValidateSegment(segData, cfg.MediaValidation); err != nil {
+		if c.logger != nil {
+			c.logger.Debug("Segment validation failed",
+				zap.String("url", segment.URI),
+				zap.Error(err))
+		}
 		check.Error = &models.CheckError{
 			Type:    models.ErrSegmentValidate,
 			Message: err.Error(),
@@ -238,6 +257,7 @@ func (c *StreamChecker) checkSegment(
 	check.Duration = resp.Duration
 	return check
 }
+
 func (c *StreamChecker) worker() {
 	defer c.wg.Done()
 	ticker := time.NewTicker(time.Second)

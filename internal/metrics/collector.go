@@ -35,9 +35,15 @@ type Collector struct {
 var _ models.MetricsCollector = (*Collector)(nil)
 
 // NewCollector создает и регистрирует все метрики
-func NewCollector() models.MetricsCollector {
+func NewCollector(reg prometheus.Registerer) models.MetricsCollector {
+	if reg == nil {
+		reg = prometheus.DefaultRegisterer
+	}
+
+	factory := promauto.With(reg)
+
 	c := &Collector{
-		streamUp: promauto.NewGaugeVec(
+		streamUp: factory.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: MetricStreamUp,
 				Help: "Shows if the HLS stream is available",
@@ -45,7 +51,7 @@ func NewCollector() models.MetricsCollector {
 			[]string{"name"},
 		),
 
-		responseTime: promauto.NewHistogramVec(
+		responseTime: factory.NewHistogramVec( // Заменили promauto на factory
 			prometheus.HistogramOpts{
 				Name:    MetricResponseTime,
 				Help:    "Response time in seconds",
@@ -54,7 +60,7 @@ func NewCollector() models.MetricsCollector {
 			[]string{"name", "type"},
 		),
 
-		errorsTotal: promauto.NewCounterVec(
+		errorsTotal: factory.NewCounterVec( // Заменили promauto на factory
 			prometheus.CounterOpts{
 				Name: MetricErrorsTotal,
 				Help: "Total number of errors",
@@ -62,7 +68,7 @@ func NewCollector() models.MetricsCollector {
 			[]string{"name", "error_type"},
 		),
 
-		lastCheck: promauto.NewGaugeVec(
+		lastCheck: factory.NewGaugeVec( // Заменили promauto на factory
 			prometheus.GaugeOpts{
 				Name: MetricLastCheck,
 				Help: "Timestamp of last check",
@@ -70,14 +76,15 @@ func NewCollector() models.MetricsCollector {
 			[]string{"name"},
 		),
 
-		segmentsChecked: promauto.NewCounterVec(
+		segmentsChecked: factory.NewCounterVec( // Заменили promauto на factory
 			prometheus.CounterOpts{
 				Name: MetricSegmentsChecked,
 				Help: "Number of segments checked",
 			},
 			[]string{"name", "status"},
 		),
-		streamBitrate: promauto.NewGaugeVec(
+
+		streamBitrate: factory.NewGaugeVec( // Заменили promauto на factory
 			prometheus.GaugeOpts{
 				Name: namespace + "_stream_bitrate_bytes",
 				Help: "Stream bitrate in bytes per second",
@@ -85,7 +92,7 @@ func NewCollector() models.MetricsCollector {
 			[]string{"name"},
 		),
 
-		segmentsCount: promauto.NewGaugeVec(
+		segmentsCount: factory.NewGaugeVec( // Заменили promauto на factory
 			prometheus.GaugeOpts{
 				Name: namespace + "_segments_count",
 				Help: "Number of segments in playlist",
@@ -93,7 +100,7 @@ func NewCollector() models.MetricsCollector {
 			[]string{"name"},
 		),
 
-		activeChecks: promauto.NewGauge(
+		activeChecks: factory.NewGauge( // Заменили promauto на factory
 			prometheus.GaugeOpts{
 				Name: namespace + "_active_checks",
 				Help: "Number of active checks",
