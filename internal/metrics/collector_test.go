@@ -7,6 +7,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+const (
+	testStreamName = "test_stream"
+)
+
 // createTestCollector создает коллектор с собственным регистром для тестов
 func createTestCollector() (*Collector, *prometheus.Registry) {
 	reg := prometheus.NewRegistry()
@@ -129,7 +133,7 @@ func TestCollector_ErrorsTotal(t *testing.T) {
 
 func TestCollector_SegmentCheck(t *testing.T) {
 	c, reg := createTestCollector()
-	streamName := "test_stream"
+	streamName := testStreamName
 
 	successCases := 3
 	failureCases := 2
@@ -160,7 +164,7 @@ func TestCollector_SegmentCheck(t *testing.T) {
 
 func TestCollector_ResponseTime(t *testing.T) {
 	c, reg := createTestCollector()
-	streamName := "test_stream"
+	streamName := testStreamName
 
 	times := []float64{0.1, 0.5, 2.0, 5.0}
 	for _, duration := range times {
@@ -186,7 +190,7 @@ func TestCollector_ResponseTime(t *testing.T) {
 
 func TestCollector_LastCheckTime(t *testing.T) {
 	c, reg := createTestCollector()
-	streamName := "test_stream"
+	streamName := testStreamName
 
 	now := time.Now()
 	c.SetLastCheckTime(streamName, now)
@@ -210,7 +214,7 @@ func TestCollector_LastCheckTime(t *testing.T) {
 
 func TestCollector_Reset(t *testing.T) {
 	c, _ := createTestCollector()
-	streamName := "test_stream"
+	streamName := testStreamName
 
 	c.SetStreamUp(streamName, true)
 	c.RecordError(streamName, "download")
