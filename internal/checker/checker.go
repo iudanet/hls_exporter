@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/url"
 	"sync"
 	"time"
 
@@ -101,12 +102,11 @@ func (c *StreamChecker) Check(ctx context.Context, stream models.StreamConfig) (
 	// Устанавливаем статус до обновления метрик
 	if segResults.Failed > 0 {
 		result.Success = false
-		errMsg := fmt.Sprintf("%d of %d segments failed validation", segResults.Failed, segResults.Checked)
+		errMsg := fmt.Sprintf("%d of %d segments failed validation", segResults.Failed, segResults.Total)
 		result.Error = &models.CheckError{
 			Type:    models.ErrSegmentValidate,
 			Message: errMsg,
 		}
-		// Обновляем метрики после установки всех полей
 		c.updateMetrics(stream.Name, result)
 		return result, fmt.Errorf("segment validation failed: %s", errMsg)
 	}
@@ -168,44 +168,85 @@ func (c *StreamChecker) checkVariants(
 	cfg models.StreamConfig,
 ) models.SegmentResults {
 	results := models.SegmentResults{}
+	baseURL := cfg.URL
+
+	var wg sync.WaitGroup
+	resultCh := make(chan models.SegmentCheck, len(master.Variants)*10) // Буферизованный канал для результатов
 
 	for _, variant := range master.Variants {
-		// Загрузка variant playlist
-		variantResp, err := c.client.GetPlaylist(ctx, variant.URI)
-		if err != nil {
-			results.Failed++
+		if variant == nil {
 			continue
 		}
 
-		// Парсинг и валидация variant playlist
-		mediaPlaylist, err := parseMediaPlaylist(variantResp.Body)
-		if err != nil {
-			results.Failed++
-			continue
-		}
-
-		if err := c.validator.ValidateMedia(mediaPlaylist); err != nil {
-			results.Failed++
-			continue
-		}
-
-		// Выбор сегментов для проверки согласно режиму
-		segments := c.selectSegments(mediaPlaylist, cfg.CheckMode)
-
-		// Проверка выбранных сегментов
-		for _, seg := range segments {
-			results.Checked++
-			segCheck := c.checkSegment(ctx, seg, cfg)
-			results.Details = append(results.Details, segCheck)
-			if !segCheck.Success {
-				results.Failed++
+		variantURL := resolveURL(baseURL, variant.URI)
+		wg.Add(1)
+		go func(variantURL string) {
+			defer wg.Done()
+			variantResp, err := c.client.GetPlaylist(ctx, variantURL)
+			if err != nil {
+				c.logger.Error("Failed to get variant playlist",
+					zap.String("uri", variant.URI),
+					zap.String("url", variantURL),
+					zap.Error(err))
+				return
 			}
+
+			mediaPlaylist, err := parseMediaPlaylist(variantResp.Body)
+			if err != nil {
+				c.logger.Error("Failed to parse media playlist",
+					zap.String("uri", variant.URI),
+					zap.Error(err))
+				return
+			}
+
+			if err := c.validator.ValidateMedia(mediaPlaylist); err != nil {
+				c.logger.Error("Failed to validate media playlist",
+					zap.String("uri", variant.URI),
+					zap.Error(err))
+				return
+			}
+
+			for _, seg := range mediaPlaylist.Segments {
+				if seg != nil {
+					seg.URI = resolveURL(variantURL, seg.URI)
+				}
+			}
+
+			segments := c.selectSegments(mediaPlaylist, cfg.CheckMode)
+			results.Total += len(segments)
+
+			for _, seg := range segments {
+				if seg == nil {
+					continue
+				}
+
+				wg.Add(1)
+				go func(seg *m3u8.MediaSegment) {
+					defer wg.Done()
+					segCheck := c.checkSegment(ctx, seg, cfg)
+					resultCh <- segCheck
+				}(seg)
+			}
+		}(variantURL)
+	}
+
+	// Закрываем канал после завершения всех горутин
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	// Собираем результаты из канала
+	for segCheck := range resultCh {
+		results.Checked++
+		results.Details = append(results.Details, segCheck)
+		if !segCheck.Success {
+			results.Failed++
 		}
 	}
 
 	return results
 }
-
 func (c *StreamChecker) checkSegment(ctx context.Context, segment *m3u8.MediaSegment, cfg models.StreamConfig) models.SegmentCheck {
 	check := models.SegmentCheck{
 		URL:     segment.URI,
@@ -214,17 +255,20 @@ func (c *StreamChecker) checkSegment(ctx context.Context, segment *m3u8.MediaSeg
 
 	resp, err := c.client.GetSegment(ctx, segment.URI, cfg.ValidateContent)
 	if err != nil {
-		if c.logger != nil {
-			c.logger.Debug("Segment download failed",
-				zap.String("url", segment.URI),
-				zap.Error(err))
-		}
+		c.logger.Debug("Segment download failed",
+			zap.String("url", segment.URI),
+			zap.Error(err))
 		check.Error = &models.CheckError{
 			Type:    models.ErrSegmentDownload,
 			Message: err.Error(),
 		}
 		return check
 	}
+
+	// Add logging for successful download
+	c.logger.Debug("Segment downloaded successfully",
+		zap.String("url", segment.URI),
+		zap.Int64("size", resp.Size))
 
 	// Если валидация контента отключена, считаем сегмент успешным
 	if !cfg.ValidateContent {
@@ -311,4 +355,18 @@ func parseMediaPlaylist(data []byte) (*m3u8.MediaPlaylist, error) {
 	}
 
 	return playlist.(*m3u8.MediaPlaylist), nil
+}
+
+func resolveURL(baseURL, relativePath string) string {
+	base, err := url.Parse(baseURL)
+	if err != nil {
+		return relativePath
+	}
+
+	relative, err := url.Parse(relativePath)
+	if err != nil {
+		return relativePath
+	}
+
+	return base.ResolveReference(relative).String()
 }

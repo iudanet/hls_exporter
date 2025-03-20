@@ -42,6 +42,11 @@ checks:
   retry_delay: "1s"
   segment_sample: 3  # для random режима
 
+logging:
+  level: "debug"  # debug, info, warn, error
+  encoding: "json"  # json или console
+  development: true  # включает режим разработки с более подробными
+
 http_client:
   timeout: "5s"
   keep_alive: true
