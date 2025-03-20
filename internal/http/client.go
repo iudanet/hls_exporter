@@ -111,7 +111,8 @@ func (c *Client) GetSegment(ctx context.Context, url string, validate bool) (*mo
 
 	// Получаем размер сегмента
 	if contentLength := resp.Header.Get("Content-Length"); contentLength != "" {
-		if size, err := parseInt64(contentLength); err == nil {
+		size, err := parseInt64(contentLength)
+		if err == nil {
 			segmentResponse.Size = size
 		}
 	}

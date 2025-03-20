@@ -2,6 +2,7 @@ package models
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -59,6 +60,10 @@ type ConfigValidator interface {
 	ValidateStream(stream *StreamConfig, index int) error
 	ValidateMediaValidation(mv *MediaValidation, streamIndex int) error
 }
+type SegmentValidator interface {
+	ValidateBasic(segment *SegmentData) error
+	ValidateMedia(segment *SegmentData, validation *MediaValidation) error
+}
 
 // Конфигурационные структуры
 
@@ -110,6 +115,7 @@ type MediaValidation struct {
 type CheckResult struct {
 	Success      bool
 	StreamStatus StreamStatus
+	StreamName   string
 	Segments     SegmentResults
 	Duration     time.Duration
 	Timestamp    time.Time
@@ -213,3 +219,7 @@ const (
 	CheckModeFirstLast = "first_last"
 	CheckModeRandom    = "random"
 )
+
+func (e *ValidationError) Error() string {
+	return fmt.Sprintf("%s: %s", e.Type, e.Message)
+}
