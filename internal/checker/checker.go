@@ -11,6 +11,12 @@ import (
 	"github.com/iudanet/hls_exporter/pkg/models"
 )
 
+var (
+	_ models.Checker          = (*StreamChecker)(nil)
+	_ models.Validator        = (*HLSValidator)(nil)
+	_ models.SegmentValidator = (*BasicSegmentValidator)(nil)
+)
+
 type StreamChecker struct {
 	client    models.HTTPClient
 	validator models.Validator
