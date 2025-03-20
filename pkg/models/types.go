@@ -51,51 +51,58 @@ type MetricsCollector interface {
 	SetActiveChecks(count int)
 }
 
+type ConfigLoader interface {
+	LoadConfig(path string) (*Config, error)
+}
+type ConfigValidator interface {
+	Validate(cfg *Config) error
+	ValidateStream(stream *StreamConfig, index int) error
+	ValidateMediaValidation(mv *MediaValidation, streamIndex int) error
+}
+
 // Конфигурационные структуры
 
 type Config struct {
-	Server     ServerConfig   `yaml:"server"`
-	Checks     CheckConfig    `yaml:"checks"`
-	HTTPClient HTTPConfig     `yaml:"http_client"`
-	Streams    []StreamConfig `yaml:"streams"`
+	Server     ServerConfig   `yaml:"server" mapstructure:"server"`
+	Checks     CheckConfig    `yaml:"checks" mapstructure:"checks"`
+	HTTPClient HTTPConfig     `yaml:"http_client" mapstructure:"http_client"`
+	Streams    []StreamConfig `yaml:"streams" mapstructure:"streams"`
 }
-
 type ServerConfig struct {
-	Port        int    `yaml:"port"`
-	MetricsPath string `yaml:"metrics_path"`
-	HealthPath  string `yaml:"health_path"`
+	Port        int    `yaml:"port" mapstructure:"port"`
+	MetricsPath string `yaml:"metrics_path" mapstructure:"metrics_path"`
+	HealthPath  string `yaml:"health_path" mapstructure:"health_path"`
 }
 
 type CheckConfig struct {
-	Workers       int           `yaml:"workers"`
-	RetryAttempts int           `yaml:"retry_attempts"`
-	RetryDelay    time.Duration `yaml:"retry_delay"`
-	SegmentSample int           `yaml:"segment_sample"`
+	Workers       int           `yaml:"workers" mapstructure:"workers"`
+	RetryAttempts int           `yaml:"retry_attempts" mapstructure:"retry_attempts"`
+	RetryDelay    time.Duration `yaml:"retry_delay" mapstructure:"retry_delay"`
+	SegmentSample int           `yaml:"segment_sample" mapstructure:"segment_sample"`
 }
 
 type HTTPConfig struct {
-	Timeout      time.Duration `yaml:"timeout"`
-	KeepAlive    bool          `yaml:"keep_alive"`
-	MaxIdleConns int           `yaml:"max_idle_conns"`
-	TLSVerify    bool          `yaml:"tls_verify"`
-	UserAgent    string        `yaml:"user_agent"`
+	Timeout      time.Duration `yaml:"timeout" mapstructure:"timeout"`
+	KeepAlive    bool          `yaml:"keep_alive" mapstructure:"keep_alive"`
+	MaxIdleConns int           `yaml:"max_idle_conns" mapstructure:"max_idle_conns"`
+	TLSVerify    bool          `yaml:"tls_verify" mapstructure:"tls_verify"`
+	UserAgent    string        `yaml:"user_agent" mapstructure:"user_agent"`
 }
 
 type StreamConfig struct {
-	Name            string           `yaml:"name"`
-	URL             string           `yaml:"url"`
-	CheckMode       string           `yaml:"check_mode"`
-	Interval        time.Duration    `yaml:"interval"`
-	Timeout         time.Duration    `yaml:"timeout"`
-	ValidateContent bool             `yaml:"validate_content"`
-	MediaValidation *MediaValidation `yaml:"media_validation,omitempty"`
+	Name            string           `yaml:"name" mapstructure:"name"`
+	URL             string           `yaml:"url" mapstructure:"url"`
+	CheckMode       string           `yaml:"check_mode" mapstructure:"check_mode"`
+	Interval        time.Duration    `yaml:"interval" mapstructure:"interval"`
+	Timeout         time.Duration    `yaml:"timeout" mapstructure:"timeout"`
+	ValidateContent bool             `yaml:"validate_content" mapstructure:"validate_content"`
+	MediaValidation *MediaValidation `yaml:"media_validation,omitempty" mapstructure:"media_validation"`
 }
-
 type MediaValidation struct {
-	ContainerType  []string `yaml:"container_type"`
-	MinSegmentSize int64    `yaml:"min_segment_size"`
-	CheckAudio     bool     `yaml:"check_audio"`
-	CheckVideo     bool     `yaml:"check_video"`
+	ContainerType  []string `yaml:"container_type" mapstructure:"container_type"`
+	MinSegmentSize int64    `yaml:"min_segment_size" mapstructure:"min_segment_size"`
+	CheckAudio     bool     `yaml:"check_audio" mapstructure:"check_audio"`
+	CheckVideo     bool     `yaml:"check_video" mapstructure:"check_video"`
 }
 
 // Структуры результатов
