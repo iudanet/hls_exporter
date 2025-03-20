@@ -131,9 +131,10 @@ type StreamStatus struct {
 }
 
 type SegmentResults struct {
-	Checked int
-	Failed  int
-	Details []SegmentCheck
+	Checked int            `json:"checked"`
+	Failed  int            `json:"failed"`
+	Total   int            `json:"total"`
+	Details []SegmentCheck `json:"details,omitempty"`
 }
 
 type SegmentCheck struct {

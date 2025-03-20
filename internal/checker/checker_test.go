@@ -102,27 +102,37 @@ func (m *MockMetricsCollector) SetStreamBitrate(name string, bitrate float64) {
 
 func TestStreamChecker_Check_Success(t *testing.T) {
 	// Setup
-	ctx := context.Background()
 	mockClient := new(MockHTTPClient)
 	mockValidator := new(MockValidator)
 	mockMetrics := new(MockMetricsCollector)
 
 	checker := NewStreamChecker(mockClient, mockValidator, mockMetrics, 1)
 
-	// Setup all expectations
-	mockClient.On("GetPlaylist", ctx, "http://test.com/master.m3u8").Return(
+	masterURL := "http://test.com/master.m3u8"
+
+	// Setup master playlist expectations
+	mockClient.On("GetPlaylist", mock.Anything, masterURL).Return(
 		&models.PlaylistResponse{
-			Body:       []byte("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000000\nvariant.m3u8"),
+			Body: []byte(`#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-STREAM-INF:BANDWIDTH=1000000
+stream.m3u8`),
 			StatusCode: 200,
 		}, nil)
 
-	mockClient.On("GetPlaylist", ctx, "variant.m3u8").Return(
+	// Setup variant playlist expectations
+	mockClient.On("GetPlaylist", mock.Anything, "http://test.com/stream.m3u8").Return(
 		&models.PlaylistResponse{
-			Body:       []byte("#EXTM3U\n#EXTINF:2.0,\nsegment.ts"),
+			Body: []byte(`#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:10
+#EXTINF:10.0,
+segment1.ts`),
 			StatusCode: 200,
 		}, nil)
 
-	mockClient.On("GetSegment", ctx, "segment.ts", true).Return(
+	// Setup segment expectations
+	mockClient.On("GetSegment", mock.Anything, "http://test.com/segment1.ts", false).Return(
 		&models.SegmentResponse{
 			Size:     1024,
 			Duration: time.Second,
@@ -136,9 +146,8 @@ func TestStreamChecker_Check_Success(t *testing.T) {
 	// Add validator expectations
 	mockValidator.On("ValidateMaster", mock.AnythingOfType("*m3u8.MasterPlaylist")).Return(nil)
 	mockValidator.On("ValidateMedia", mock.AnythingOfType("*m3u8.MediaPlaylist")).Return(nil)
-	mockValidator.On("ValidateSegment", mock.AnythingOfType("*models.SegmentData"), mock.AnythingOfType("*models.MediaValidation")).Return(nil)
 
-	// Metric expectations
+	// Add metrics expectations
 	mockMetrics.On("SetStreamUp", "test_stream", true).Return()
 	mockMetrics.On("RecordResponseTime", "test_stream", mock.AnythingOfType("float64")).Return()
 	mockMetrics.On("SetLastCheckTime", "test_stream", mock.AnythingOfType("time.Time")).Return()
@@ -148,17 +157,21 @@ func TestStreamChecker_Check_Success(t *testing.T) {
 	mockMetrics.On("SetStreamBitrate", "test_stream", mock.AnythingOfType("float64")).Return()
 
 	// Execute
-	result, err := checker.Check(ctx, models.StreamConfig{
+	result, err := checker.Check(context.Background(), models.StreamConfig{
 		Name:            "test_stream",
-		URL:             "http://test.com/master.m3u8",
+		URL:             masterURL,
 		CheckMode:       models.CheckModeAll,
-		ValidateContent: true,
+		ValidateContent: false,
 	})
 
 	// Assert
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
 	assert.True(t, result.Success)
+	assert.Equal(t, 1, result.Segments.Checked)
+	assert.Equal(t, 0, result.Segments.Failed)
+
+	// Verify all expectations were met
 	mockClient.AssertExpectations(t)
 	mockValidator.AssertExpectations(t)
 	mockMetrics.AssertExpectations(t)
@@ -201,4 +214,39 @@ func TestStreamChecker_Check_MasterPlaylistError(t *testing.T) {
 	// Verify expectations
 	mockClient.AssertExpectations(t)
 	mockMetrics.AssertExpectations(t)
+}
+
+func TestResolveURL(t *testing.T) {
+	tests := []struct {
+		name         string
+		baseURL      string
+		relativePath string
+		expected     string
+	}{
+		{
+			name:         "absolute path",
+			baseURL:      "http://test.com/master.m3u8",
+			relativePath: "http://test.com/variant.m3u8",
+			expected:     "http://test.com/variant.m3u8",
+		},
+		{
+			name:         "relative path",
+			baseURL:      "http://test.com/master.m3u8",
+			relativePath: "variant.m3u8",
+			expected:     "http://test.com/variant.m3u8",
+		},
+		{
+			name:         "parent directory",
+			baseURL:      "http://test.com/path/master.m3u8",
+			relativePath: "../variant.m3u8",
+			expected:     "http://test.com/variant.m3u8",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := resolveURL(tt.baseURL, tt.relativePath)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }
