@@ -168,69 +168,80 @@ func (c *StreamChecker) checkVariants(
 	cfg models.StreamConfig,
 ) models.SegmentResults {
 	results := models.SegmentResults{}
-
-	// Get base URL from the master playlist URL
 	baseURL := cfg.URL
+
+	var wg sync.WaitGroup
+	resultCh := make(chan models.SegmentCheck, len(master.Variants)*10) // Буферизованный канал для результатов
 
 	for _, variant := range master.Variants {
 		if variant == nil {
 			continue
 		}
 
-		// Resolve relative URL to absolute
 		variantURL := resolveURL(baseURL, variant.URI)
-
-		// Загрузка variant playlist
-		variantResp, err := c.client.GetPlaylist(ctx, variantURL)
-		if err != nil {
-			c.logger.Error("Failed to get variant playlist",
-				zap.String("uri", variant.URI),
-				zap.String("url", variantURL),
-				zap.Error(err))
-			continue
-		}
-
-		// Парсинг и валидация variant playlist
-		mediaPlaylist, err := parseMediaPlaylist(variantResp.Body)
-		if err != nil {
-			c.logger.Error("Failed to parse media playlist",
-				zap.String("uri", variant.URI),
-				zap.Error(err))
-			continue
-		}
-
-		if err := c.validator.ValidateMedia(mediaPlaylist); err != nil {
-			c.logger.Error("Failed to validate media playlist",
-				zap.String("uri", variant.URI),
-				zap.Error(err))
-			continue
-		}
-
-		// Resolve segment URLs in the media playlist
-		for _, seg := range mediaPlaylist.Segments {
-			if seg != nil {
-				seg.URI = resolveURL(variantURL, seg.URI)
-			}
-		}
-
-		// Выбор сегментов для проверки согласно режиму
-		segments := c.selectSegments(mediaPlaylist, cfg.CheckMode)
-
-		// Initialize segment count before checking
-		results.Total += len(segments)
-
-		// Проверка выбранных сегментов
-		for _, seg := range segments {
-			if seg == nil {
-				continue
+		wg.Add(1)
+		go func(variantURL string) {
+			defer wg.Done()
+			variantResp, err := c.client.GetPlaylist(ctx, variantURL)
+			if err != nil {
+				c.logger.Error("Failed to get variant playlist",
+					zap.String("uri", variant.URI),
+					zap.String("url", variantURL),
+					zap.Error(err))
+				return
 			}
 
-			results.Checked++
-			segCheck := c.checkSegment(ctx, seg, cfg)
-			results.Details = append(results.Details, segCheck)
-			if !segCheck.Success {
-				results.Failed++
+			mediaPlaylist, err := parseMediaPlaylist(variantResp.Body)
+			if err != nil {
+				c.logger.Error("Failed to parse media playlist",
+					zap.String("uri", variant.URI),
+					zap.Error(err))
+				return
 			}
+
+			if err := c.validator.ValidateMedia(mediaPlaylist); err != nil {
+				c.logger.Error("Failed to validate media playlist",
+					zap.String("uri", variant.URI),
+					zap.Error(err))
+				return
+			}
+
+			for _, seg := range mediaPlaylist.Segments {
+				if seg != nil {
+					seg.URI = resolveURL(variantURL, seg.URI)
+				}
+			}
+
+			segments := c.selectSegments(mediaPlaylist, cfg.CheckMode)
+			results.Total += len(segments)
+
+			for _, seg := range segments {
+				if seg == nil {
+					continue
+				}
+
+				wg.Add(1)
+				go func(seg *m3u8.MediaSegment) {
+					defer wg.Done()
+					segCheck := c.checkSegment(ctx, seg, cfg)
+					resultCh <- segCheck
+				}(seg)
+			}
+		}(variantURL)
+	}
+
+	// Закрываем канал после завершения всех горутин
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	// Собираем результаты из канала
+	for segCheck := range resultCh {
+		results.Checked++
+		results.Details = append(results.Details, segCheck)
+		if !segCheck.Success {
+			results.Failed++
 		}
 	}
 

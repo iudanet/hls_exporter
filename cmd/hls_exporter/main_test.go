@@ -35,6 +35,28 @@ const (
 %s/segment1.ts`
 )
 
+func getTestConfig() string {
+	return `
+server:
+    port: 9091
+    metrics_path: "/metrics"
+    health_path: "/health"
+
+logging:
+    level: "debug"
+    encoding: "json"
+    development: false
+
+streams:
+    - name: "test_stream"
+      url: "%s/test.m3u8"
+      check_mode: "first_last"
+      interval: "5s"
+      timeout: "2s"
+      validate_content: false
+`
+}
+
 func TestRunStreamChecks(t *testing.T) {
 	// Создаем отдельный регистр для тестов
 	reg, testServerURL, cleanup := setupTest(t)
@@ -171,53 +193,17 @@ func TestMainIntegration(t *testing.T) {
 	defer func() {
 		prometheus.DefaultRegisterer = originalReg
 	}()
-	baseContent := `#EXTM3U
-#EXT-X-VERSION:3
-#EXT-X-STREAM-INF:BANDWIDTH=1000000
-%s/stream.m3u8`
-
-	mediaContent := `#EXTM3U
-#EXT-X-VERSION:3
-#EXT-X-TARGETDURATION:10
-#EXTINF:10.0,
-%s/segment1.ts`
 
 	var testServerURL string
-	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case testM3U8Path:
-			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
-			fmt.Fprintf(w, baseContent, testServerURL)
-		case testStreamPath:
-			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
-			fmt.Fprintf(w, mediaContent, testServerURL)
-		case testSegmentPath:
-			w.Header().Set("Content-Type", "video/MP2T")
-			_, err := w.Write(make([]byte, 1024))
-			if err != nil {
-				t.Errorf("Failed to write response: %v", err)
-			}
-		}
+	testServer := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		// ... существующий код обработчика ...
 	}))
 	defer testServer.Close()
 
 	testServerURL = testServer.URL
 
-	// Создаем временный конфиг
-	configContent := fmt.Sprintf(`
-server:
-    port: 9091
-    metrics_path: "/metrics"
-    health_path: "/health"
-
-streams:
-    - name: "test_stream"
-      url: "%s/test.m3u8"
-      check_mode: "first_last"
-      interval: "5s"
-      timeout: "2s"
-      validate_content: false
-`, testServerURL)
+	// Создаем временный конфиг с настройками логгера
+	configContent := fmt.Sprintf(getTestConfig(), testServerURL)
 
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	err := os.WriteFile(configPath, []byte(configContent), 0644)

@@ -18,6 +18,7 @@ import (
 	"github.com/iudanet/hls_exporter/pkg/models"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 var (
@@ -26,9 +27,15 @@ var (
 
 func main() {
 	flag.Parse()
-
+	// Загрузка конфигурации
+	configLoader := config.NewConfigManager()
+	cfg, err := configLoader.LoadConfig(*configFile)
+	if err != nil {
+		fmt.Printf("Failed to load configuration: %v\n", err)
+		os.Exit(1)
+	}
 	// Инициализация логгера
-	logger, err := zap.NewProduction()
+	logger, err := initLogger(cfg.Logging)
 	if err != nil {
 		fmt.Printf("Failed to initialize logger: %v\n", err)
 		os.Exit(1)
@@ -39,15 +46,6 @@ func main() {
 			fmt.Printf("Failed to sync logger: %v\n", err)
 		}
 	}()
-
-	// Загрузка конфигурации
-	configLoader := config.NewConfigManager()
-	cfg, err := configLoader.LoadConfig(*configFile)
-	if err != nil {
-		logger.Fatal("Failed to load configuration",
-			zap.String("file", *configFile),
-			zap.Error(err))
-	}
 
 	// Инициализация компонентов
 	metricsCollector := metrics.NewCollector(nil) // nil использует DefaultRegisterer
@@ -157,4 +155,26 @@ func healthCheckHandler(w http.ResponseWriter, _ *http.Request) {
 	if _, err := w.Write([]byte("OK")); err != nil {
 		log.Printf("Error writing response: %v", err)
 	}
+}
+func initLogger(cfg models.LoggingConfig) (*zap.Logger, error) {
+	var level zapcore.Level
+	if err := level.UnmarshalText([]byte(cfg.Level)); err != nil {
+		return nil, fmt.Errorf("invalid log level: %w", err)
+	}
+
+	encConfig := zap.NewProductionEncoderConfig()
+	if cfg.Development {
+		encConfig = zap.NewDevelopmentEncoderConfig()
+	}
+
+	logConfig := zap.Config{
+		Level:            zap.NewAtomicLevelAt(level),
+		Development:      cfg.Development,
+		Encoding:         cfg.Encoding,
+		EncoderConfig:    encConfig,
+		OutputPaths:      []string{"stdout"},
+		ErrorOutputPaths: []string{"stderr"},
+	}
+
+	return logConfig.Build()
 }

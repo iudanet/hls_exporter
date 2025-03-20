@@ -68,8 +68,10 @@ type SegmentValidator interface {
 // Конфигурационные структуры
 
 type Config struct {
-	Server     ServerConfig   `yaml:"server" mapstructure:"server"`
-	Checks     CheckConfig    `yaml:"checks" mapstructure:"checks"`
+	Server  ServerConfig  `yaml:"server" mapstructure:"server"`
+	Checks  CheckConfig   `yaml:"checks" mapstructure:"checks"`
+	Logging LoggingConfig `yaml:"logging" mapstructure:"logging"`
+
 	HTTPClient HTTPConfig     `yaml:"http_client" mapstructure:"http_client"`
 	Streams    []StreamConfig `yaml:"streams" mapstructure:"streams"`
 }
@@ -78,7 +80,11 @@ type ServerConfig struct {
 	MetricsPath string `yaml:"metrics_path" mapstructure:"metrics_path"`
 	HealthPath  string `yaml:"health_path" mapstructure:"health_path"`
 }
-
+type LoggingConfig struct {
+	Level       string `yaml:"level" mapstructure:"level"`
+	Encoding    string `yaml:"encoding" mapstructure:"encoding"`
+	Development bool   `yaml:"development" mapstructure:"development"`
+}
 type CheckConfig struct {
 	Workers       int           `yaml:"workers" mapstructure:"workers"`
 	RetryAttempts int           `yaml:"retry_attempts" mapstructure:"retry_attempts"`
@@ -142,6 +148,14 @@ type SegmentCheck struct {
 	Success  bool
 	Duration time.Duration
 	Error    *CheckError
+}
+
+func (sc SegmentCheck) String() string {
+	result := fmt.Sprintf("URL: %s, Success: %v, Duration: %v", sc.URL, sc.Success, sc.Duration)
+	if sc.Error != nil {
+		result += fmt.Sprintf(", Error: %s", sc.Error.Message)
+	}
+	return result
 }
 
 type SegmentData struct {
