@@ -47,7 +47,7 @@ func TestCollector(t *testing.T) {
 	}
 }
 
-func testSetStreamUp(t *testing.T, reg *prometheus.Registry, collector models.MetricsCollector) {
+func testSetStreamUp(t *testing.T, _ *prometheus.Registry, collector models.MetricsCollector) {
 	collector.SetStreamUp("test_stream", true)
 	value := collector.(*Collector).GetStreamUp("test_stream")
 	assert.Equal(t, float64(1), value)
@@ -56,159 +56,160 @@ func testSetStreamUp(t *testing.T, reg *prometheus.Registry, collector models.Me
 	value = collector.(*Collector).GetStreamUp("test_stream")
 	assert.Equal(t, float64(0), value)
 }
-// Тест для RecordError
-func testRecordError(t *testing.T, reg *prometheus.Registry, collector models.MetricsCollector) {
-    collector.RecordError("test_stream", "test_error")
-    value := collector.(*Collector).GetErrorsTotal("test_stream", "test_error")
-    assert.Equal(t, float64(1), value)
 
-    collector.RecordError("test_stream", "test_error")
-    value = collector.(*Collector).GetErrorsTotal("test_stream", "test_error")
-    assert.Equal(t, float64(2), value)
+// Тест для RecordError
+func testRecordError(t *testing.T, _ *prometheus.Registry, collector models.MetricsCollector) {
+	collector.RecordError("test_stream", "test_error")
+	value := collector.(*Collector).GetErrorsTotal("test_stream", "test_error")
+	assert.Equal(t, float64(1), value)
+
+	collector.RecordError("test_stream", "test_error")
+	value = collector.(*Collector).GetErrorsTotal("test_stream", "test_error")
+	assert.Equal(t, float64(2), value)
 }
 
 // Тест для SetLastCheckTime
 func testSetLastCheckTime(t *testing.T, reg *prometheus.Registry, collector models.MetricsCollector) {
-    now := time.Now()
-    collector.SetLastCheckTime("test_stream", now)
+	now := time.Now()
+	collector.SetLastCheckTime("test_stream", now)
 
-    metrics, err := reg.Gather()
-    assert.NoError(t, err)
+	metrics, err := reg.Gather()
+	assert.NoError(t, err)
 
-    found := false
-    for _, m := range metrics {
-        if *m.Name == MetricLastCheck {
-            for _, metric := range m.Metric {
-                for _, label := range metric.Label {
-                    if *label.Name == "name" && *label.Value == "test_stream" {
-                        found = true
-                        assert.Equal(t, float64(now.Unix()), *metric.Gauge.Value)
-                    }
-                }
-            }
-        }
-    }
-    assert.True(t, found, "LastCheck metric should be found")
+	found := false
+	for _, m := range metrics {
+		if *m.Name == MetricLastCheck {
+			for _, metric := range m.Metric {
+				for _, label := range metric.Label {
+					if *label.Name == "name" && *label.Value == "test_stream" {
+						found = true
+						assert.Equal(t, float64(now.Unix()), *metric.Gauge.Value)
+					}
+				}
+			}
+		}
+	}
+	assert.True(t, found, "LastCheck metric should be found")
 }
 
 // Тест для RecordSegmentCheck
 func testRecordSegmentCheck(t *testing.T, reg *prometheus.Registry, collector models.MetricsCollector) {
-    collector.RecordSegmentCheck("test_stream", true)
-    collector.RecordSegmentCheck("test_stream", false)
+	collector.RecordSegmentCheck("test_stream", true)
+	collector.RecordSegmentCheck("test_stream", false)
 
-    metrics, err := reg.Gather()
-    assert.NoError(t, err)
+	metrics, err := reg.Gather()
+	assert.NoError(t, err)
 
-    var successCount, failedCount float64
-    for _, m := range metrics {
-        if *m.Name == MetricSegmentsChecked {
-            for _, metric := range m.Metric {
-                for _, label := range metric.Label {
-                    if *label.Name == "name" && *label.Value == "test_stream" {
-                        if hasLabelValue(metric, "status", "success") {
-                            successCount = *metric.Counter.Value
-                        }
-                        if hasLabelValue(metric, "status", "failed") {
-                            failedCount = *metric.Counter.Value
-                        }
-                    }
-                }
-            }
-        }
-    }
-    assert.Equal(t, float64(1), successCount, "Should have one successful check")
-    assert.Equal(t, float64(1), failedCount, "Should have one failed check")
+	var successCount, failedCount float64
+	for _, m := range metrics {
+		if *m.Name == MetricSegmentsChecked {
+			for _, metric := range m.Metric {
+				for _, label := range metric.Label {
+					if *label.Name == "name" && *label.Value == "test_stream" {
+						if hasLabelValue(metric, "status", "success") {
+							successCount = *metric.Counter.Value
+						}
+						if hasLabelValue(metric, "status", "failed") {
+							failedCount = *metric.Counter.Value
+						}
+					}
+				}
+			}
+		}
+	}
+	assert.Equal(t, float64(1), successCount, "Should have one successful check")
+	assert.Equal(t, float64(1), failedCount, "Should have one failed check")
 }
 
 // Тест для RecordResponseTime
 func testRecordResponseTime(t *testing.T, reg *prometheus.Registry, collector models.MetricsCollector) {
-    collector.RecordResponseTime("test_stream", 0.5)
+	collector.RecordResponseTime("test_stream", 0.5)
 
-    metrics, err := reg.Gather()
-    assert.NoError(t, err)
+	metrics, err := reg.Gather()
+	assert.NoError(t, err)
 
-    found := false
-    for _, m := range metrics {
-        if *m.Name == MetricResponseTime {
-            for _, metric := range m.Metric {
-                if hasLabelValue(metric, "name", "test_stream") {
-                    found = true
-                    assert.Equal(t, uint64(1), *metric.Histogram.SampleCount)
-                    assert.Equal(t, 0.5, *metric.Histogram.SampleSum)
-                }
-            }
-        }
-    }
-    assert.True(t, found, "ResponseTime metric should be found")
+	found := false
+	for _, m := range metrics {
+		if *m.Name == MetricResponseTime {
+			for _, metric := range m.Metric {
+				if hasLabelValue(metric, "name", "test_stream") {
+					found = true
+					assert.Equal(t, uint64(1), *metric.Histogram.SampleCount)
+					assert.Equal(t, 0.5, *metric.Histogram.SampleSum)
+				}
+			}
+		}
+	}
+	assert.True(t, found, "ResponseTime metric should be found")
 }
 
 // Тест для SetActiveChecks
 func testSetActiveChecks(t *testing.T, reg *prometheus.Registry, collector models.MetricsCollector) {
-    collector.(*Collector).SetActiveChecks(5)
+	collector.(*Collector).SetActiveChecks(5)
 
-    metrics, err := reg.Gather()
-    assert.NoError(t, err)
+	metrics, err := reg.Gather()
+	assert.NoError(t, err)
 
-    found := false
-    for _, m := range metrics {
-        if *m.Name == namespace+"_active_checks" {
-            found = true
-            assert.Equal(t, float64(5), *m.Metric[0].Gauge.Value)
-        }
-    }
-    assert.True(t, found, "ActiveChecks metric should be found")
+	found := false
+	for _, m := range metrics {
+		if *m.Name == namespace+"_active_checks" {
+			found = true
+			assert.Equal(t, float64(5), *m.Metric[0].Gauge.Value)
+		}
+	}
+	assert.True(t, found, "ActiveChecks metric should be found")
 }
 
 // Тест для SetSegmentsCount
 func testSetSegmentsCount(t *testing.T, reg *prometheus.Registry, collector models.MetricsCollector) {
-    collector.(*Collector).SetSegmentsCount("test_stream", 10)
+	collector.(*Collector).SetSegmentsCount("test_stream", 10)
 
-    metrics, err := reg.Gather()
-    assert.NoError(t, err)
+	metrics, err := reg.Gather()
+	assert.NoError(t, err)
 
-    found := false
-    for _, m := range metrics {
-        if *m.Name == namespace+"_segments_count" {
-            for _, metric := range m.Metric {
-                if hasLabelValue(metric, "name", "test_stream") {
-                    found = true
-                    assert.Equal(t, float64(10), *metric.Gauge.Value)
-                }
-            }
-        }
-    }
-    assert.True(t, found, "SegmentsCount metric should be found")
+	found := false
+	for _, m := range metrics {
+		if *m.Name == namespace+"_segments_count" {
+			for _, metric := range m.Metric {
+				if hasLabelValue(metric, "name", "test_stream") {
+					found = true
+					assert.Equal(t, float64(10), *metric.Gauge.Value)
+				}
+			}
+		}
+	}
+	assert.True(t, found, "SegmentsCount metric should be found")
 }
 
 // Тест для SetStreamBitrate
 func testSetStreamBitrate(t *testing.T, reg *prometheus.Registry, collector models.MetricsCollector) {
-    collector.(*Collector).SetStreamBitrate("test_stream", 1500000)
+	collector.(*Collector).SetStreamBitrate("test_stream", 1500000)
 
-    metrics, err := reg.Gather()
-    assert.NoError(t, err)
+	metrics, err := reg.Gather()
+	assert.NoError(t, err)
 
-    found := false
-    for _, m := range metrics {
-        if *m.Name == namespace+"_stream_bitrate_bytes" {
-            for _, metric := range m.Metric {
-                if hasLabelValue(metric, "name", "test_stream") {
-                    found = true
-                    assert.Equal(t, float64(1500000), *metric.Gauge.Value)
-                }
-            }
-        }
-    }
-    assert.True(t, found, "StreamBitrate metric should be found")
+	found := false
+	for _, m := range metrics {
+		if *m.Name == namespace+"_stream_bitrate_bytes" {
+			for _, metric := range m.Metric {
+				if hasLabelValue(metric, "name", "test_stream") {
+					found = true
+					assert.Equal(t, float64(1500000), *metric.Gauge.Value)
+				}
+			}
+		}
+	}
+	assert.True(t, found, "StreamBitrate metric should be found")
 }
 
 // Вспомогательная функция для проверки значения метки
 func hasLabelValue(metric *dto.Metric, labelName, labelValue string) bool {
-    for _, label := range metric.Label {
-        if *label.Name == labelName && *label.Value == labelValue {
-            return true
-        }
-    }
-    return false
+	for _, label := range metric.Label {
+		if *label.Name == labelName && *label.Value == labelValue {
+			return true
+		}
+	}
+	return false
 }
 func TestNewCollectorWithNilRegistry(t *testing.T) {
 	// Сохраняем оригинальный регистр

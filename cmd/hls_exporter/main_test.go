@@ -20,6 +20,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	testSegmentPath = "/segment1.ts"
+	testStreamPath  = "/stream.m3u8"
+	testM3U8Path    = "/test.m3u8"
+	baseContentTpl  = `#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-STREAM-INF:BANDWIDTH=1000000
+%s/stream.m3u8`
+	mediaContentTpl = `#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:10
+#EXTINF:10.0,
+%s/segment1.ts`
+)
+
 func TestRunStreamChecks(t *testing.T) {
 	// Создаем отдельный регистр для тестов
 	reg, testServerURL, cleanup := setupTest(t)
@@ -37,21 +52,24 @@ func TestRunStreamChecks(t *testing.T) {
 
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/test.m3u8":
+		case testM3U8Path:
 			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 			w.WriteHeader(http.StatusOK)
 			fmt.Fprintf(w, baseContent, testServerURL)
 
-		case "/stream.m3u8":
+		case testStreamPath:
 			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 			w.WriteHeader(http.StatusOK)
 			fmt.Fprintf(w, mediaContent, testServerURL)
 
-		case "/segment1.ts":
+		case testSegmentPath:
 			w.Header().Set("Content-Type", "video/MP2T")
 			w.Header().Set("Content-Length", "1024")
 			w.WriteHeader(http.StatusOK)
-			w.Write(make([]byte, 1024))
+			_, err := w.Write(make([]byte, 1024))
+			if err != nil {
+				t.Errorf("Failed to write response: %v", err)
+			}
 
 		default:
 			w.WriteHeader(http.StatusNotFound)
@@ -115,7 +133,12 @@ streams:
 	// Запускаем чекер
 	err = streamChecker.Start()
 	require.NoError(t, err)
-	defer streamChecker.Stop()
+	defer func() {
+		err := streamChecker.Stop()
+		if err != nil {
+			t.Errorf("Failed to stop stream checker: %v", err)
+		}
+	}()
 
 	// Запускаем одну проверку
 	streamCfg := cfg.Streams[0]
@@ -162,15 +185,18 @@ func TestMainIntegration(t *testing.T) {
 	var testServerURL string
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/test.m3u8":
+		case testM3U8Path:
 			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 			fmt.Fprintf(w, baseContent, testServerURL)
-		case "/stream.m3u8":
+		case testStreamPath:
 			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 			fmt.Fprintf(w, mediaContent, testServerURL)
-		case "/segment1.ts":
+		case testSegmentPath:
 			w.Header().Set("Content-Type", "video/MP2T")
-			w.Write(make([]byte, 1024))
+			_, err := w.Write(make([]byte, 1024))
+			if err != nil {
+				t.Errorf("Failed to write response: %v", err)
+			}
 		}
 	}))
 	defer testServer.Close()
@@ -231,33 +257,29 @@ func setupTest(t *testing.T) (*prometheus.Registry, string, func()) {
 	reg := prometheus.NewRegistry()
 
 	// Создаем тестовый сервер
-	baseContent := `#EXTM3U
-#EXT-X-VERSION:3
-#EXT-X-STREAM-INF:BANDWIDTH=1000000
-%s/stream.m3u8`
+	baseContent := baseContentTpl
 
-	mediaContent := `#EXTM3U
-#EXT-X-VERSION:3
-#EXT-X-TARGETDURATION:10
-#EXTINF:10.0,
-%s/segment1.ts`
+	mediaContent := mediaContentTpl
 
 	var testServerURL string
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/test.m3u8":
+		case testM3U8Path:
 			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 			w.WriteHeader(http.StatusOK)
 			fmt.Fprintf(w, baseContent, testServerURL)
-		case "/stream.m3u8":
+		case testStreamPath:
 			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 			w.WriteHeader(http.StatusOK)
 			fmt.Fprintf(w, mediaContent, testServerURL)
-		case "/segment1.ts":
+		case testSegmentPath:
 			w.Header().Set("Content-Type", "video/MP2T")
 			w.Header().Set("Content-Length", "1024")
 			w.WriteHeader(http.StatusOK)
-			w.Write(make([]byte, 1024))
+			_, err := w.Write(make([]byte, 1024))
+			if err != nil {
+				t.Errorf("Failed to write response: %v", err)
+			}
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -32,7 +33,12 @@ func main() {
 		fmt.Printf("Failed to initialize logger: %v\n", err)
 		os.Exit(1)
 	}
-	defer logger.Sync()
+	defer func() {
+		err := logger.Sync()
+		if err != nil {
+			fmt.Printf("Failed to sync logger: %v\n", err)
+		}
+	}()
 
 	// Загрузка конфигурации
 	configLoader := config.NewConfigManager()
@@ -69,8 +75,9 @@ func main() {
 	mux.HandleFunc(cfg.Server.HealthPath, healthCheckHandler)
 
 	server := &http.Server{
-		Addr:    fmt.Sprintf(":%d", cfg.Server.Port),
-		Handler: mux,
+		Addr:              fmt.Sprintf(":%d", cfg.Server.Port),
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second, // Защита от Slowloris атак
 	}
 
 	// Канал для graceful shutdown
@@ -145,7 +152,9 @@ func runStreamChecks(ctx context.Context, checker *checker.StreamChecker, cfg mo
 }
 
 // healthCheckHandler для endpoint /health
-func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
+func healthCheckHandler(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
+	if _, err := w.Write([]byte("OK")); err != nil {
+		log.Printf("Error writing response: %v", err)
+	}
 }
