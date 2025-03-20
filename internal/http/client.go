@@ -15,7 +15,9 @@ type Client struct {
 	userAgent  string
 }
 
-func NewClient(config models.HTTPConfig) *Client {
+var _ models.HTTPClient = (*Client)(nil)
+
+func NewClient(config models.HTTPConfig) models.HTTPClient {
 	transport := &http.Transport{
 		MaxIdleConns:    config.MaxIdleConns,
 		IdleConnTimeout: 90 * time.Second,

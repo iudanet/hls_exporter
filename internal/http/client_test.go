@@ -44,7 +44,7 @@ func TestClient_GetPlaylist(t *testing.T) {
 			client := NewClient(models.HTTPConfig{
 				Timeout:   5 * time.Second,
 				UserAgent: "test-agent",
-			})
+			}).(*Client)
 
 			resp, err := client.GetPlaylist(context.Background(), server.URL)
 			if (err != nil) != tt.wantErr {
@@ -138,7 +138,7 @@ func TestClient_GetSegment(t *testing.T) {
 func TestClient_SetTimeout(t *testing.T) {
 	client := NewClient(models.HTTPConfig{
 		Timeout: 5 * time.Second,
-	})
+	}).(*Client)
 
 	newTimeout := 10 * time.Second
 	client.SetTimeout(newTimeout)

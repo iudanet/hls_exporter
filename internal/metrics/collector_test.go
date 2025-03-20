@@ -168,7 +168,7 @@ func TestCollector_ResponseTime(t *testing.T) {
 
 	times := []float64{0.1, 0.5, 2.0, 5.0}
 	for _, duration := range times {
-		c.RecordResponseTime(streamName, duration, "playlist")
+		c.RecordResponseTime(streamName, duration)
 	}
 
 	metrics, err := reg.Gather()

@@ -3,6 +3,7 @@ package metrics
 import (
 	"time"
 
+	"github.com/iudanet/hls_exporter/pkg/models"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	dto "github.com/prometheus/client_model/go"
@@ -26,10 +27,15 @@ type Collector struct {
 	errorsTotal     *prometheus.CounterVec
 	lastCheck       *prometheus.GaugeVec
 	segmentsChecked *prometheus.CounterVec
+	streamBitrate   *prometheus.GaugeVec // Добавляем
+	segmentsCount   *prometheus.GaugeVec // Добавляем
+	activeChecks    prometheus.Gauge     // Добавляем
 }
 
+var _ models.MetricsCollector = (*Collector)(nil)
+
 // NewCollector создает и регистрирует все метрики
-func NewCollector() *Collector {
+func NewCollector() models.MetricsCollector {
 	c := &Collector{
 		streamUp: promauto.NewGaugeVec(
 			prometheus.GaugeOpts{
@@ -71,6 +77,28 @@ func NewCollector() *Collector {
 			},
 			[]string{"name", "status"},
 		),
+		streamBitrate: promauto.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: namespace + "_stream_bitrate_bytes",
+				Help: "Stream bitrate in bytes per second",
+			},
+			[]string{"name"},
+		),
+
+		segmentsCount: promauto.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: namespace + "_segments_count",
+				Help: "Number of segments in playlist",
+			},
+			[]string{"name"},
+		),
+
+		activeChecks: promauto.NewGauge(
+			prometheus.GaugeOpts{
+				Name: namespace + "_active_checks",
+				Help: "Number of active checks",
+			},
+		),
 	}
 
 	return c
@@ -86,8 +114,8 @@ func (c *Collector) SetStreamUp(name string, up bool) {
 }
 
 // RecordResponseTime записывает время ответа
-func (c *Collector) RecordResponseTime(name string, duration float64, checkType string) {
-	c.responseTime.WithLabelValues(name, checkType).Observe(duration)
+func (c *Collector) RecordResponseTime(name string, duration float64) {
+	c.responseTime.WithLabelValues(name, "total").Observe(duration)
 }
 
 // RecordError увеличивает счетчик ошибок
@@ -128,6 +156,18 @@ func (c *Collector) GetStreamUp(name string) float64 {
 
 func (c *Collector) GetErrorsTotal(name, errorType string) float64 {
 	return getCounterValue(c.errorsTotal.WithLabelValues(name, errorType))
+}
+
+func (c *Collector) SetStreamBitrate(name string, bitrate float64) {
+	c.streamBitrate.WithLabelValues(name).Set(bitrate)
+}
+
+func (c *Collector) SetSegmentsCount(name string, count int) {
+	c.segmentsCount.WithLabelValues(name).Set(float64(count))
+}
+
+func (c *Collector) SetActiveChecks(count int) {
+	c.activeChecks.Set(float64(count))
 }
 
 // Получение значения Gauge метрики
