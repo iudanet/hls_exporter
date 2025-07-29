@@ -8,16 +8,18 @@ import (
 	"time"
 
 	"github.com/iudanet/hls_exporter/pkg/models"
+	"go.uber.org/zap"
 )
 
 type Client struct {
 	httpClient *http.Client
 	userAgent  string
+	logger     *zap.Logger
 }
 
 var _ models.HTTPClient = (*Client)(nil)
 
-func NewClient(config models.HTTPConfig) models.HTTPClient {
+func NewClient(config models.HTTPConfig, logger *zap.Logger) models.HTTPClient {
 	transport := &http.Transport{
 		MaxIdleConns:    config.MaxIdleConns,
 		IdleConnTimeout: 90 * time.Second,
@@ -32,11 +34,26 @@ func NewClient(config models.HTTPConfig) models.HTTPClient {
 	return &Client{
 		httpClient: client,
 		userAgent:  config.UserAgent,
+		logger:     logger,
 	}
+}
+
+func (c *Client) remainingTime(ctx context.Context, url string) {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		c.logger.Debug("Дедлайн не установлен")
+	}
+	// return , true
+	c.logger.Debug(
+		"Осталось времени",
+		zap.Duration("remaining", time.Until(deadline)),
+		zap.String("url", url),
+	)
 }
 
 func (c *Client) GetPlaylist(ctx context.Context, url string) (*models.PlaylistResponse, error) {
 	start := time.Now()
+	c.remainingTime(ctx, url)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -74,9 +91,13 @@ func (c *Client) GetPlaylist(ctx context.Context, url string) (*models.PlaylistR
 	}, nil
 }
 
-func (c *Client) GetSegment(ctx context.Context, url string, validate bool) (*models.SegmentResponse, error) {
+func (c *Client) GetSegment(
+	ctx context.Context,
+	url string,
+	validate bool,
+) (*models.SegmentResponse, error) {
 	start := time.Now()
-
+	c.remainingTime(ctx, url)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)

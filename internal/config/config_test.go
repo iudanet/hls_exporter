@@ -84,6 +84,7 @@ streams:
 		assert.Equal(t, []string{"TS"}, stream2.MediaValidation.ContainerType)
 	})
 }
+
 func TestConfigValidation(t *testing.T) {
 	tests := []struct {
 		name        string

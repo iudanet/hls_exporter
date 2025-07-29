@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/iudanet/hls_exporter/pkg/models"
+	"go.uber.org/zap"
 )
 
 func TestClient_GetPlaylist(t *testing.T) {
@@ -33,18 +34,20 @@ func TestClient_GetPlaylist(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(tt.statusCode)
-				if _, err := w.Write([]byte(tt.serverResponse)); err != nil {
-					t.Fatalf("Failed to write response: %v", err)
-				}
-			}))
+			server := httptest.NewServer(
+				http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(tt.statusCode)
+					if _, err := w.Write([]byte(tt.serverResponse)); err != nil {
+						t.Fatalf("Failed to write response: %v", err)
+					}
+				}),
+			)
 			defer server.Close()
-
+			logger := zap.NewNop()
 			client := NewClient(models.HTTPConfig{
 				Timeout:   5 * time.Second,
 				UserAgent: "test-agent",
-			}).(*Client)
+			}, logger).(*Client)
 
 			resp, err := client.GetPlaylist(context.Background(), server.URL)
 			if (err != nil) != tt.wantErr {
@@ -54,10 +57,18 @@ func TestClient_GetPlaylist(t *testing.T) {
 
 			if !tt.wantErr {
 				if resp.StatusCode != tt.statusCode {
-					t.Errorf("GetPlaylist() statusCode = %v, want %v", resp.StatusCode, tt.statusCode)
+					t.Errorf(
+						"GetPlaylist() statusCode = %v, want %v",
+						resp.StatusCode,
+						tt.statusCode,
+					)
 				}
 				if string(resp.Body) != tt.serverResponse {
-					t.Errorf("GetPlaylist() body = %v, want %v", string(resp.Body), tt.serverResponse)
+					t.Errorf(
+						"GetPlaylist() body = %v, want %v",
+						string(resp.Body),
+						tt.serverResponse,
+					)
 				}
 			}
 		})
@@ -96,23 +107,25 @@ func TestClient_GetSegment(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if tt.size != "" {
-					w.Header().Set("Content-Length", tt.size)
-				}
-				w.WriteHeader(tt.statusCode)
-				if r.Method != http.MethodHead {
-					if _, err := w.Write([]byte("fake segment data")); err != nil {
-						t.Fatalf("Failed to write response: %v", err)
+			server := httptest.NewServer(
+				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if tt.size != "" {
+						w.Header().Set("Content-Length", tt.size)
 					}
-				}
-			}))
+					w.WriteHeader(tt.statusCode)
+					if r.Method != http.MethodHead {
+						if _, err := w.Write([]byte("fake segment data")); err != nil {
+							t.Fatalf("Failed to write response: %v", err)
+						}
+					}
+				}),
+			)
 			defer server.Close()
 
 			client := NewClient(models.HTTPConfig{
 				Timeout:   5 * time.Second,
 				UserAgent: "test-agent",
-			})
+			}, zap.NewNop())
 
 			resp, err := client.GetSegment(context.Background(), server.URL, tt.validate)
 			if (err != nil) != tt.wantErr {
@@ -122,7 +135,11 @@ func TestClient_GetSegment(t *testing.T) {
 
 			if !tt.wantErr {
 				if resp.StatusCode != tt.statusCode {
-					t.Errorf("GetSegment() statusCode = %v, want %v", resp.StatusCode, tt.statusCode)
+					t.Errorf(
+						"GetSegment() statusCode = %v, want %v",
+						resp.StatusCode,
+						tt.statusCode,
+					)
 				}
 				if tt.size != "" {
 					expectedSize, _ := parseInt64(tt.size)
@@ -138,7 +155,7 @@ func TestClient_GetSegment(t *testing.T) {
 func TestClient_SetTimeout(t *testing.T) {
 	client := NewClient(models.HTTPConfig{
 		Timeout: 5 * time.Second,
-	}).(*Client)
+	}, zap.NewNop()).(*Client)
 
 	newTimeout := 10 * time.Second
 	client.SetTimeout(newTimeout)
@@ -157,7 +174,7 @@ func TestClient_Context(t *testing.T) {
 
 	client := NewClient(models.HTTPConfig{
 		Timeout: 5 * time.Second,
-	})
+	}, zap.NewNop())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()

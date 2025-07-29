@@ -53,8 +53,12 @@ func (v *BasicSegmentValidator) ValidateMedia(
 	// Проверка минимального размера
 	if segment.Size < validation.MinSegmentSize {
 		return &models.ValidationError{
-			Type:    models.ErrSegmentSize,
-			Message: fmt.Sprintf("segment size %d less than minimum %d", segment.Size, validation.MinSegmentSize),
+			Type: models.ErrSegmentSize,
+			Message: fmt.Sprintf(
+				"segment size %d less than minimum %d",
+				segment.Size,
+				validation.MinSegmentSize,
+			),
 		}
 	}
 

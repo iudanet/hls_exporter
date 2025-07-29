@@ -3,6 +3,7 @@ package checker
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"sync"
@@ -45,9 +46,11 @@ func NewStreamChecker(
 		stopCh:    make(chan struct{}),
 	}
 }
+
 func (c *StreamChecker) StopCh() <-chan struct{} {
 	return c.stopCh
 }
+
 func (c *StreamChecker) Start() error {
 	c.client.SetTimeout(10 * time.Second) // Set timeout when starting the checker
 	for i := 0; i < c.workers; i++ {
@@ -81,7 +84,11 @@ func (c *StreamChecker) Stop() error {
 	c.wg.Wait()
 	return nil
 }
-func (c *StreamChecker) Check(ctx context.Context, stream models.StreamConfig) (*models.CheckResult, error) {
+
+func (c *StreamChecker) Check(
+	ctx context.Context,
+	stream models.StreamConfig,
+) (*models.CheckResult, error) {
 	result := c.initResult(stream)
 	start := result.Timestamp
 
@@ -102,7 +109,11 @@ func (c *StreamChecker) Check(ctx context.Context, stream models.StreamConfig) (
 	// Устанавливаем статус до обновления метрик
 	if segResults.Failed > 0 {
 		result.Success = false
-		errMsg := fmt.Sprintf("%d of %d segments failed validation", segResults.Failed, segResults.Total)
+		errMsg := fmt.Sprintf(
+			"%d of %d segments failed validation",
+			segResults.Failed,
+			segResults.Total,
+		)
 		result.Error = &models.CheckError{
 			Type:    models.ErrSegmentValidate,
 			Message: errMsg,
@@ -125,7 +136,11 @@ func (c *StreamChecker) initResult(stream models.StreamConfig) *models.CheckResu
 	}
 }
 
-func (c *StreamChecker) checkMasterPlaylist(ctx context.Context, url string, result *models.CheckResult) (*m3u8.MasterPlaylist, *models.PlaylistResponse, error) {
+func (c *StreamChecker) checkMasterPlaylist(
+	ctx context.Context,
+	url string,
+	result *models.CheckResult,
+) (*m3u8.MasterPlaylist, *models.PlaylistResponse, error) {
 	masterResp, err := c.client.GetPlaylist(ctx, url)
 	if err != nil {
 		return nil, nil, c.handleError(result, err, models.ErrPlaylistDownload)
@@ -143,7 +158,12 @@ func (c *StreamChecker) checkMasterPlaylist(ctx context.Context, url string, res
 	return masterPlaylist, masterResp, nil
 }
 
-func (c *StreamChecker) updateResultStatus(result *models.CheckResult, masterPlaylist *m3u8.MasterPlaylist, masterResp *models.PlaylistResponse, segResults models.SegmentResults) *models.CheckResult {
+func (c *StreamChecker) updateResultStatus(
+	result *models.CheckResult,
+	masterPlaylist *m3u8.MasterPlaylist,
+	masterResp *models.PlaylistResponse,
+	segResults models.SegmentResults,
+) *models.CheckResult {
 	var lastModified time.Time
 	if lm := masterResp.Headers.Get("Last-Modified"); lm != "" {
 		if t, err := time.Parse(time.RFC1123, lm); err == nil {
@@ -167,12 +187,34 @@ func (c *StreamChecker) checkVariants(
 	master *m3u8.MasterPlaylist,
 	cfg models.StreamConfig,
 ) models.SegmentResults {
-	results := models.SegmentResults{}
+	// Создаем потокобезопасную структуру для результатов
+	var (
+		resultsMu sync.Mutex
+		results   models.SegmentResults
+	)
+
 	baseURL := cfg.URL
+	resultCh := make(chan models.SegmentCheck, len(master.Variants)*10) // Буферизованный канал
+
+	// Ограничиваем количество одновременных проверок сегментов
+	sem := make(chan struct{}, c.workers*2) // Семафор для ограничения параллелизма
 
 	var wg sync.WaitGroup
-	resultCh := make(chan models.SegmentCheck, len(master.Variants)*10) // Буферизованный канал для результатов
 
+	// Горутина для сбора результатов
+	go func() {
+		for segCheck := range resultCh {
+			resultsMu.Lock()
+			results.Checked++
+			results.Details = append(results.Details, segCheck)
+			if !segCheck.Success {
+				results.Failed++
+			}
+			resultsMu.Unlock()
+		}
+	}()
+
+	// Проверка каждого варианта
 	for _, variant := range master.Variants {
 		if variant == nil {
 			continue
@@ -180,12 +222,21 @@ func (c *StreamChecker) checkVariants(
 
 		variantURL := resolveURL(baseURL, variant.URI)
 		wg.Add(1)
-		go func(variantURL string) {
+
+		go func(variantURL, variantURI string) {
 			defer wg.Done()
+
+			// Проверка контекста перед началом работы
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
 			variantResp, err := c.client.GetPlaylist(ctx, variantURL)
 			if err != nil {
 				c.logger.Error("Failed to get variant playlist",
-					zap.String("uri", variant.URI),
+					zap.String("uri", variantURI),
 					zap.String("url", variantURL),
 					zap.Error(err))
 				return
@@ -194,18 +245,19 @@ func (c *StreamChecker) checkVariants(
 			mediaPlaylist, err := parseMediaPlaylist(variantResp.Body)
 			if err != nil {
 				c.logger.Error("Failed to parse media playlist",
-					zap.String("uri", variant.URI),
+					zap.String("uri", variantURI),
 					zap.Error(err))
 				return
 			}
 
 			if err := c.validator.ValidateMedia(mediaPlaylist); err != nil {
 				c.logger.Error("Failed to validate media playlist",
-					zap.String("uri", variant.URI),
+					zap.String("uri", variantURI),
 					zap.Error(err))
 				return
 			}
 
+			// Обновляем URI сегментов
 			for _, seg := range mediaPlaylist.Segments {
 				if seg != nil {
 					seg.URI = resolveURL(variantURL, seg.URI)
@@ -213,41 +265,55 @@ func (c *StreamChecker) checkVariants(
 			}
 
 			segments := c.selectSegments(mediaPlaylist, cfg.CheckMode)
-			results.Total += len(segments)
 
+			// Атомарно обновляем общее количество сегментов
+			resultsMu.Lock()
+			results.Total += len(segments)
+			resultsMu.Unlock()
+
+			// Проверка каждого сегмента
+			var segWg sync.WaitGroup
 			for _, seg := range segments {
 				if seg == nil {
 					continue
 				}
 
-				wg.Add(1)
+				segWg.Add(1)
+
+				// Ограничиваем параллелизм семафором
+				sem <- struct{}{}
+
 				go func(seg *m3u8.MediaSegment) {
-					defer wg.Done()
-					segCheck := c.checkSegment(ctx, seg, cfg)
-					resultCh <- segCheck
+					defer func() {
+						<-sem
+						segWg.Done()
+					}()
+
+					select {
+					case <-ctx.Done():
+						return
+					default:
+						segCheck := c.checkSegment(ctx, seg, cfg)
+						resultCh <- segCheck
+					}
 				}(seg)
 			}
-		}(variantURL)
+			segWg.Wait()
+		}(variantURL, variant.URI)
 	}
 
-	// Закрываем канал после завершения всех горутин
-	go func() {
-		wg.Wait()
-		close(resultCh)
-	}()
-
-	// Собираем результаты из канала
-	for segCheck := range resultCh {
-		results.Checked++
-		results.Details = append(results.Details, segCheck)
-		if !segCheck.Success {
-			results.Failed++
-		}
-	}
+	// Ждем завершения всех горутин
+	wg.Wait()
+	close(resultCh) // Безопасное закрытие канала
 
 	return results
 }
-func (c *StreamChecker) checkSegment(ctx context.Context, segment *m3u8.MediaSegment, cfg models.StreamConfig) models.SegmentCheck {
+
+func (c *StreamChecker) checkSegment(
+	ctx context.Context,
+	segment *m3u8.MediaSegment,
+	cfg models.StreamConfig,
+) models.SegmentCheck {
 	check := models.SegmentCheck{
 		URL:     segment.URI,
 		Success: false,
@@ -345,6 +411,9 @@ func parseMasterPlaylist(data []byte) (*m3u8.MasterPlaylist, error) {
 }
 
 func parseMediaPlaylist(data []byte) (*m3u8.MediaPlaylist, error) {
+	if len(data) == 0 {
+		return nil, errors.New("empty playlist data")
+	}
 	playlist, listType, err := m3u8.DecodeFrom(bytes.NewReader(data), false)
 	if err != nil {
 		return nil, err

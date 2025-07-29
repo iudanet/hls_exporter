@@ -200,7 +200,11 @@ func TestSelectSegments(t *testing.T) {
 				assert.Contains(t, segments[0].URI, "segment_0")
 			}
 			if tt.checkLast && tt.expectedCount > 0 {
-				assert.Contains(t, segments[len(segments)-1].URI, fmt.Sprintf("segment_%d", tt.playlist.Count()-1))
+				assert.Contains(
+					t,
+					segments[len(segments)-1].URI,
+					fmt.Sprintf("segment_%d", tt.playlist.Count()-1),
+				)
 			}
 		})
 	}

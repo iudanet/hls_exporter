@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/iudanet/hls_exporter/pkg/models"
-
 	"github.com/spf13/viper"
 )
 
@@ -111,7 +110,6 @@ func (cm *Manager) setDefaults() {
 
 // validateStream проверяет конфигурацию отдельного стрима
 func (cv *Validator) ValidateStream(stream *models.StreamConfig, index int) error {
-
 	if stream.Name == "" {
 		return fmt.Errorf("stream[%d]: name cannot be empty", index)
 	}
@@ -156,18 +154,28 @@ func (cv *Validator) ValidateStream(stream *models.StreamConfig, index int) erro
 // validateMediaValidation проверяет настройки валидации медиа
 func (cv *Validator) ValidateMediaValidation(mv *models.MediaValidation, streamIndex int) error {
 	if len(mv.ContainerType) == 0 {
-		return fmt.Errorf("stream[%d]: media_validation: container_type cannot be empty", streamIndex)
+		return fmt.Errorf(
+			"stream[%d]: media_validation: container_type cannot be empty",
+			streamIndex,
+		)
 	}
 
 	validContainers := map[string]bool{"TS": true, "fMP4": true}
 	for _, ct := range mv.ContainerType {
 		if !validContainers[ct] {
-			return fmt.Errorf("stream[%d]: media_validation: invalid container_type: %s", streamIndex, ct)
+			return fmt.Errorf(
+				"stream[%d]: media_validation: invalid container_type: %s",
+				streamIndex,
+				ct,
+			)
 		}
 	}
 
 	if mv.MinSegmentSize < 0 {
-		return fmt.Errorf("stream[%d]: media_validation: min_segment_size cannot be negative", streamIndex)
+		return fmt.Errorf(
+			"stream[%d]: media_validation: min_segment_size cannot be negative",
+			streamIndex,
+		)
 	}
 
 	return nil

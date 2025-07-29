@@ -15,7 +15,7 @@ all: test lint
 # Запуск тестов
 test:
 	@echo "${GREEN}Running tests...${NC}"
-	go test -v ./...
+	go test ./...
 
 # Запуск тестов с покрытием
 coverage:
@@ -31,6 +31,7 @@ ensure-lint:
 # Запуск линтера
 lint: ensure-lint
 	@echo "${GREEN}Running linter...${NC}"
+	golangci-lint fmt ./...
 	golangci-lint run ./...
 
 # Очистка временных файлов

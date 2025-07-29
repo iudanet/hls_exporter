@@ -69,7 +69,11 @@ func testRecordError(t *testing.T, _ *prometheus.Registry, collector models.Metr
 }
 
 // Тест для SetLastCheckTime
-func testSetLastCheckTime(t *testing.T, reg *prometheus.Registry, collector models.MetricsCollector) {
+func testSetLastCheckTime(
+	t *testing.T,
+	reg *prometheus.Registry,
+	collector models.MetricsCollector,
+) {
 	now := time.Now()
 	collector.SetLastCheckTime("test_stream", now)
 
@@ -93,7 +97,11 @@ func testSetLastCheckTime(t *testing.T, reg *prometheus.Registry, collector mode
 }
 
 // Тест для RecordSegmentCheck
-func testRecordSegmentCheck(t *testing.T, reg *prometheus.Registry, collector models.MetricsCollector) {
+func testRecordSegmentCheck(
+	t *testing.T,
+	reg *prometheus.Registry,
+	collector models.MetricsCollector,
+) {
 	collector.RecordSegmentCheck("test_stream", true)
 	collector.RecordSegmentCheck("test_stream", false)
 
@@ -122,7 +130,11 @@ func testRecordSegmentCheck(t *testing.T, reg *prometheus.Registry, collector mo
 }
 
 // Тест для RecordResponseTime
-func testRecordResponseTime(t *testing.T, reg *prometheus.Registry, collector models.MetricsCollector) {
+func testRecordResponseTime(
+	t *testing.T,
+	reg *prometheus.Registry,
+	collector models.MetricsCollector,
+) {
 	collector.RecordResponseTime("test_stream", 0.5)
 
 	metrics, err := reg.Gather()
@@ -144,7 +156,11 @@ func testRecordResponseTime(t *testing.T, reg *prometheus.Registry, collector mo
 }
 
 // Тест для SetActiveChecks
-func testSetActiveChecks(t *testing.T, reg *prometheus.Registry, collector models.MetricsCollector) {
+func testSetActiveChecks(
+	t *testing.T,
+	reg *prometheus.Registry,
+	collector models.MetricsCollector,
+) {
 	collector.(*Collector).SetActiveChecks(5)
 
 	metrics, err := reg.Gather()
@@ -161,7 +177,11 @@ func testSetActiveChecks(t *testing.T, reg *prometheus.Registry, collector model
 }
 
 // Тест для SetSegmentsCount
-func testSetSegmentsCount(t *testing.T, reg *prometheus.Registry, collector models.MetricsCollector) {
+func testSetSegmentsCount(
+	t *testing.T,
+	reg *prometheus.Registry,
+	collector models.MetricsCollector,
+) {
 	collector.(*Collector).SetSegmentsCount("test_stream", 10)
 
 	metrics, err := reg.Gather()
@@ -182,7 +202,11 @@ func testSetSegmentsCount(t *testing.T, reg *prometheus.Registry, collector mode
 }
 
 // Тест для SetStreamBitrate
-func testSetStreamBitrate(t *testing.T, reg *prometheus.Registry, collector models.MetricsCollector) {
+func testSetStreamBitrate(
+	t *testing.T,
+	reg *prometheus.Registry,
+	collector models.MetricsCollector,
+) {
 	collector.(*Collector).SetStreamBitrate("test_stream", 1500000)
 
 	metrics, err := reg.Gather()
@@ -211,6 +235,7 @@ func hasLabelValue(metric *dto.Metric, labelName, labelValue string) bool {
 	}
 	return false
 }
+
 func TestNewCollectorWithNilRegistry(t *testing.T) {
 	// Сохраняем оригинальный регистр
 	origReg := prometheus.DefaultRegisterer

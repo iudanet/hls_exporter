@@ -21,9 +21,7 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-var (
-	configFile = flag.String("config", "config.yaml", "Path to configuration file")
-)
+var configFile = flag.String("config", "config.yaml", "Path to configuration file")
 
 func main() {
 	flag.Parse()
@@ -50,7 +48,7 @@ func main() {
 	// Инициализация компонентов
 	metricsCollector := metrics.NewCollector(nil) // nil использует DefaultRegisterer
 
-	httpClient := client.NewClient(cfg.HTTPClient)
+	httpClient := client.NewClient(cfg.HTTPClient, logger)
 	defer httpClient.Close()
 	validator := checker.NewHLSValidator()
 
@@ -119,13 +117,20 @@ func main() {
 }
 
 // runStreamChecks запускает периодические проверки для стрима
-func runStreamChecks(ctx context.Context, checker *checker.StreamChecker, cfg models.StreamConfig, logger *zap.Logger) {
+func runStreamChecks(
+	ctx context.Context,
+	checker *checker.StreamChecker,
+	cfg models.StreamConfig,
+	logger *zap.Logger,
+) {
 	ticker := time.NewTicker(cfg.Interval)
 	defer ticker.Stop()
 
 	for {
+		logger.Debug("start check", zap.String("stream", cfg.Name))
 		checkCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
 		result, err := checker.Check(checkCtx, cfg)
+		logger.Debug("end check and cansel", zap.String("stream", cfg.Name))
 		cancel()
 
 		if err != nil {
@@ -156,6 +161,7 @@ func healthCheckHandler(w http.ResponseWriter, _ *http.Request) {
 		log.Printf("Error writing response: %v", err)
 	}
 }
+
 func initLogger(cfg models.LoggingConfig) (*zap.Logger, error) {
 	var level zapcore.Level
 	if err := level.UnmarshalText([]byte(cfg.Level)); err != nil {

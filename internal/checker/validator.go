@@ -1,11 +1,10 @@
 package checker
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"math/big"
-
-	"crypto/rand"
 
 	"github.com/grafov/m3u8"
 	"github.com/iudanet/hls_exporter/pkg/models"
@@ -32,6 +31,7 @@ func NewHLSValidator() *HLSValidator {
 		segmentValidator: NewSegmentValidator(), // создаем конкретную реализацию
 	}
 }
+
 func (v *HLSValidator) ValidateSegment(
 	segment *models.SegmentData,
 	validation *models.MediaValidation,
@@ -50,6 +50,7 @@ func (v *HLSValidator) ValidateSegment(
 
 	return nil
 }
+
 func (v *HLSValidator) ValidateMaster(playlist *m3u8.MasterPlaylist) error {
 	if playlist == nil {
 		return errors.New("empty master playlist")
@@ -92,8 +93,15 @@ func (v *HLSValidator) ValidateMedia(playlist *m3u8.MediaPlaylist) error {
 	return nil
 }
 
-func (c *StreamChecker) selectSegments(playlist *m3u8.MediaPlaylist, mode string) []*m3u8.MediaSegment {
+func (c *StreamChecker) selectSegments(
+	playlist *m3u8.MediaPlaylist,
+	mode string,
+) []*m3u8.MediaSegment {
 	var segments []*m3u8.MediaSegment
+
+	if playlist == nil || playlist.Count() == 0 {
+		return segments
+	}
 
 	switch mode {
 	case models.CheckModeAll:
@@ -150,12 +158,14 @@ func safeCount(count uint) int {
 	}
 	return int(count)
 }
+
 func safeInt64(n uint) int64 {
 	if n > uint(MaxInt64) {
 		return MaxInt64
 	}
 	return int64(n)
 }
+
 func minInt(a, b int) int {
 	if a < b {
 		return a
