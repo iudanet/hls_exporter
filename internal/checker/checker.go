@@ -201,8 +201,10 @@ func (c *StreamChecker) checkVariants(
 
 	var wg sync.WaitGroup
 
-	// Горутина для сбора результатов
+	// Горутина для сбора результатов; collectorDone закрывается, когда канал вычитан до конца
+	collectorDone := make(chan struct{})
 	go func() {
+		defer close(collectorDone)
 		for segCheck := range resultCh {
 			resultsMu.Lock()
 			results.Checked++
@@ -305,6 +307,8 @@ func (c *StreamChecker) checkVariants(
 	// Ждем завершения всех горутин
 	wg.Wait()
 	close(resultCh) // Безопасное закрытие канала
+	// Дожидаемся сборщика, иначе results читается, пока он ещё пишет (data race)
+	<-collectorDone
 
 	return results
 }

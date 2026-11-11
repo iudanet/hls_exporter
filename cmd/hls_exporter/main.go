@@ -49,7 +49,11 @@ func main() {
 	metricsCollector := metrics.NewCollector(nil) // nil использует DefaultRegisterer
 
 	httpClient := client.NewClient(cfg.HTTPClient, logger)
-	defer httpClient.Close()
+	defer func() {
+		if err := httpClient.Close(); err != nil {
+			logger.Error("Failed to close HTTP client", zap.Error(err))
+		}
+	}()
 	validator := checker.NewHLSValidator()
 
 	// Инициализация чекера

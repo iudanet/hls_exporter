@@ -50,13 +50,12 @@ streams:
       check_audio: true
       check_video: true`
 
-	tmpfile, err := os.CreateTemp("", "config-*.yaml")
+	tmpfile, err := os.CreateTemp(t.TempDir(), "config-*.yaml")
 	require.NoError(t, err)
-	defer os.Remove(tmpfile.Name())
 
 	_, err = tmpfile.Write([]byte(configContent))
 	require.NoError(t, err)
-	tmpfile.Close()
+	require.NoError(t, tmpfile.Close())
 
 	t.Run("successful load", func(t *testing.T) {
 		configLoader := NewConfigManager()
@@ -166,13 +165,12 @@ streams:
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tmpfile, err := os.CreateTemp("", "config-*.yaml")
+			tmpfile, err := os.CreateTemp(t.TempDir(), "config-*.yaml")
 			require.NoError(t, err)
-			defer os.Remove(tmpfile.Name())
 
 			_, err = tmpfile.Write([]byte(tt.configFile))
 			require.NoError(t, err)
-			tmpfile.Close()
+			require.NoError(t, tmpfile.Close())
 
 			configLoader := NewConfigManager()
 			_, err = configLoader.LoadConfig(tmpfile.Name())
@@ -194,16 +192,14 @@ streams:
     interval: "30s"
     timeout: "10s"` // Заменили табуляции на пробелы
 
-	tmpfile, err := os.CreateTemp("", "config-*.yaml")
+	tmpfile, err := os.CreateTemp(t.TempDir(), "config-*.yaml")
 	require.NoError(t, err)
-	defer os.Remove(tmpfile.Name())
 
 	_, err = tmpfile.Write([]byte(configContent))
 	require.NoError(t, err)
-	tmpfile.Close()
+	require.NoError(t, tmpfile.Close())
 
-	os.Setenv("HLS_SERVER_PORT", "8080")
-	defer os.Unsetenv("HLS_SERVER_PORT")
+	t.Setenv("HLS_SERVER_PORT", "8080")
 
 	configLoader := NewConfigManager()
 	cfg, err := configLoader.LoadConfig(tmpfile.Name())
